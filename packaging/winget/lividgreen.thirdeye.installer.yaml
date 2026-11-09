@@ -1,5 +1,8 @@
+# Created by hand for the first submission; later versions by wingetcreate.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+
 PackageIdentifier: lividgreen.thirdeye
-PackageVersion: 0.0.1
+PackageVersion: 0.0.2
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
@@ -7,13 +10,13 @@ NestedInstallerFiles:
   PortableCommandAlias: thirdeye
 Commands:
 - thirdeye
-ReleaseDate: 2026-11-09
+ReleaseDate: 2026-11-10
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.1/thirdeye-x86_64-pc-windows-msvc.zip
-  InstallerSha256: BD4C9EFC0E8B0D64D4CE320DAAC0BBFB88ACD689843E1650E58F8D45DEF17C20
+  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.2/thirdeye-x86_64-pc-windows-msvc.zip
+  InstallerSha256: 665E0845BFD0E16A66B77DB3CA9A77BBC367FEFA808DBF19511C234AEBE383C5
 - Architecture: arm64
-  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.1/thirdeye-aarch64-pc-windows-msvc.zip
-  InstallerSha256: 55175ADD78FFF155EBEA91DE1418C2873F53F936C298F78E4292CC9A28F626E0
+  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.2/thirdeye-aarch64-pc-windows-msvc.zip
+  InstallerSha256: C7DBC6F210CD67318F1E7806428F35777CF1EB8A2AB8D1E95C4420EC4EC361B9
 ManifestType: installer
 ManifestVersion: 1.10.0
