@@ -142,3 +142,46 @@ jobs:
             || { echo "Cargo.toml's version is not $version"; exit 1; }
           cp install.sh install.ps1 dist/
           gh release upload "$tag" dist/* --clobber
+
+  # Open the pull request that brings this release to winget, against
+  # microsoft/winget-pkgs. After the upload, so the zips it hashes exist.
+  #
+  # `wingetcreate update` starts from the manifest winget-pkgs already
+  # holds, so the package's first version went in by hand
+  # (`packaging/winget/`). It needs `WINGET_TOKEN`: a classic token with
+  # `public_repo` from the account owning the winget-pkgs fork it pushes
+  # to — the workflow's own token cannot reach another repository. Without
+  # one the job says so and passes, rather than failing a release that
+  # otherwise went out.
+  winget:
+    needs: release
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: windows-latest
+    steps:
+      - name: submit to winget-pkgs
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:WINGET_TOKEN) {
+            "::warning::WINGET_TOKEN is not set; $env:TAG was not submitted to winget"
+            exit 0
+          }
+          # Pinned, and checked against the hash Microsoft publishes beside it.
+          $url = 'https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe'
+          $sha = '24042BD37915805615E6CF969AC57C6439124C3FE85823327F5F3FB24BD9FFEA'
+          Invoke-WebRequest $url -OutFile wingetcreate.exe
+          if ((Get-FileHash wingetcreate.exe).Hash -ne $sha) { throw 'wingetcreate.exe does not match its pinned hash' }
+
+          $version = $env:TAG -replace '^v', ''
+          $base = "https://github.com/${{ github.repository }}/releases/download/$env:TAG"
+          # The architecture is stated, not left to a guess from the URL:
+          # `x86_64` is not a spelling every matcher knows.
+          .\wingetcreate.exe update lividgreen.thirdeye `
+            --version $version `
+            --urls "$base/thirdeye-x86_64-pc-windows-msvc.zip|x64" "$base/thirdeye-aarch64-pc-windows-msvc.zip|arm64" `
+            --release-notes-url "https://github.com/${{ github.repository }}/releases/tag/$env:TAG" `
+            --submit --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited with $LASTEXITCODE" }

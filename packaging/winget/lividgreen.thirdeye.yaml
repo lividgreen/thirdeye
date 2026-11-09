@@ -1,5 +1,8 @@
+# Created by hand for the first submission; later versions by wingetcreate.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
+
 PackageIdentifier: lividgreen.thirdeye
-PackageVersion: 0.0.1
+PackageVersion: 0.0.2
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.10.0
+ManifestVersion: 1.28.0
