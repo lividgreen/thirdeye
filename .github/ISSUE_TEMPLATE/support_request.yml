@@ -1,0 +1,31 @@
+name: Support for an agent or terminal
+description: Ask for an agent, terminal or platform thirdeye does not support yet.
+labels: [support]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the README's roadmap first. thirdeye supports an agent only
+        through what the agent reports itself (hooks, plugins, extensions),
+        and a terminal only through a documented way to open a pane or
+        window from outside it.
+  - type: input
+    id: name
+    attributes:
+      label: Agent, terminal or platform
+      placeholder: Goose 1.9 / Konsole 25.04 / macOS 26
+    validations:
+      required: true
+  - type: textarea
+    id: interface
+    attributes:
+      label: What it offers
+      description: |
+        For an agent: its hooks or plugin events, with a link to their
+        documentation. For a terminal: the command that opens a split or a
+        window. Captured output from a real session is the most useful.
+  - type: textarea
+    id: help
+    attributes:
+      label: Can you help?
+      description: For instance by capturing payloads or testing a build.

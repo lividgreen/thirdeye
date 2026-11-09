@@ -1,0 +1,11 @@
+# >>> thirdeye — managed by `thirdeye codex install`; removed by `uninstall`
+[mcp_servers.thirdeye]
+command = {{THIRDEYE}}
+args = ["mcp", "--agent", "codex"]
+
+# Codex asks before every MCP call otherwise, and `codex exec` refuses it
+# outright. `flag` only points the human's viewer at a file; it changes
+# nothing in the project.
+[mcp_servers.thirdeye.tools.flag]
+approval_mode = "approve"
+# <<< thirdeye

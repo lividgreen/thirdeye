@@ -1,0 +1,19 @@
+[package]
+name = "thirdeye-core"
+description = "Core event model, session-keyed event log, and file tracker for thirdeye"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["agent", "event-log", "thirdeye"]
+categories = ["development-tools"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

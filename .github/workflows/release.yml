@@ -1,0 +1,144 @@
+# Build every released target and attach the archives, their checksums and
+# both installers to a release.
+#
+# A release is made on GitHub's web page, which creates its tag when it is
+# published; that fires this workflow, which builds from the tag and uploads
+# to the release. A pull request that touches what a release is built from
+# runs the builds alone, so the matrix is known to work before a release
+# depends on it; so does a manual run.
+#
+# Asset names carry no version, so `releases/latest/download/<name>` always
+# resolves: install.sh and install.ps1 pick a release by its URL, not by a
+# file name they would first have to discover.
+name: release
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - install.sh
+      - install.ps1
+      - Cargo.toml
+      - Cargo.lock
+  workflow_dispatch:
+
+# Read-only, but for the one job that publishes. The build runs third-party
+# actions and pull requests' code; neither needs to write.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl, static: one archive runs on every distribution.
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `build.rs` stamps the binary with `git describe`.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      # Not `pip install ziglang`: the runner's system Python is externally
+      # managed (PEP 668) and refuses it.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: matrix.zig
+      - name: cargo-zigbuild, for a static musl link
+        if: matrix.zig
+        run: cargo install --locked cargo-zigbuild --version 0.24.1
+      - name: build
+        shell: bash
+        run: |
+          if [ "${{ matrix.zig }}" = true ]; then
+            cargo zigbuild --release --locked -p thirdeye --target ${{ matrix.target }}
+          else
+            cargo build --release --locked -p thirdeye --target ${{ matrix.target }}
+          fi
+      - name: package
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p dist stage
+          cp LICENSE-MIT LICENSE-APACHE README.md stage/
+          case "${{ matrix.target }}" in
+            *windows*)
+              cp "target/${{ matrix.target }}/release/thirdeye.exe" stage/
+              name="thirdeye-${{ matrix.target }}.zip"
+              (cd stage && 7z a -tzip "../dist/$name" . >/dev/null)
+              ;;
+            *)
+              cp "target/${{ matrix.target }}/release/thirdeye" stage/
+              name="thirdeye-${{ matrix.target }}.tar.gz"
+              tar -czf "dist/$name" -C stage .
+              ;;
+          esac
+          (cd dist && sha256sum "$name" > "$name.sha256")
+      # The binary for this runner's own architecture says what it is; the
+      # other is cross-built and only packaged.
+      - name: smoke
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in
+            *windows*) "target/${{ matrix.target }}/release/thirdeye.exe" --version ;;
+            *) "target/${{ matrix.target }}/release/thirdeye" --version ;;
+          esac
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # A provenance attestation per archive: `gh attestation verify
+      # <archive> -R lividgreen/thirdeye` proves it was built here, from
+      # this tag, which a checksum served beside it cannot.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      # GitHub attests in public repositories only; a private one's release
+      # goes out without it rather than not at all.
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+      - name: attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          # The crate's version must be the tag's, or `self update
+          # --version` would fetch one thing and report another.
+          grep -q "^version = \"$version\"" Cargo.toml \
+            || { echo "Cargo.toml's version is not $version"; exit 1; }
+          cp install.sh install.ps1 dist/
+          gh release upload "$tag" dist/* --clobber

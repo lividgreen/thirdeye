@@ -1,0 +1,14 @@
+{
+  "name": "thirdeye",
+  "description": "Tracks the files your agent touches, and lets it flag the ones you should read",
+  "version": "{{VERSION}}",
+  "author": {
+    "name": "lividgreen"
+  },
+  "license": "MIT OR Apache-2.0",
+  "keywords": [
+    "viewer",
+    "files",
+    "review"
+  ]
+}

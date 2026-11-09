@@ -1,0 +1,17 @@
+[Unit]
+Description=thirdeye viewer daemon for session %i
+# Without the socket there is nothing to inherit, and the daemon would exit
+# reporting that it was not socket-activated.
+Requires=thirdeye@%i.socket
+
+[Service]
+Type=notify
+# %i is the socket's file stem, not necessarily the agent's session id: a long
+# session id is hashed to fit sun_path. The daemon recovers the real id and
+# the workspace from %t/thirdeye/%i.json, which the hook wrote — it is the
+# only process that knew either.
+ExecStart=%h/.local/bin/thirdeye daemon --session %i
+# The daemon holds no unique data: everything is derived by replaying the log.
+# Restarting it costs a re-read and nothing else.
+Restart=on-failure
+RestartSec=1

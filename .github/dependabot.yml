@@ -1,0 +1,20 @@
+# Weekly, grouped: one pull request per ecosystem rather than one per crate.
+# Security updates are not grouped and arrive as soon as an advisory does.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        update-types: [minor, patch]
+
+  # Actions are pinned by commit; Dependabot moves the pin and its comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

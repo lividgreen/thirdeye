@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "thirdeye",
+  "description": "thirdeye — see which files your coding agent is touching (installed by `thirdeye install claude`)",
+  "owner": {
+    "name": "lividgreen"
+  },
+  "plugins": [
+    {
+      "name": "thirdeye",
+      "description": "Records the files an agent reads, edits and is asked to look at, grouped by conversational turn",
+      "category": "productivity",
+      "source": "./thirdeye"
+    }
+  ]
+}

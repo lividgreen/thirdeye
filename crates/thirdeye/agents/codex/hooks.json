@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "async": true,
+        "command": "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/thirdeye\"; mkdir -p \"$d\"; {{THIRDEYE}} hook --agent codex 2>>\"$d/hook-errors.log\"; exit 0" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command",
+        "command": "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/thirdeye\"; mkdir -p \"$d\"; {{THIRDEYE}} hook --agent codex 2>>\"$d/hook-errors.log\"; exit 0" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "async": true,
+        "command": "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/thirdeye\"; mkdir -p \"$d\"; {{THIRDEYE}} hook --agent codex 2>>\"$d/hook-errors.log\"; exit 0" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command",
+        "command": "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/thirdeye\"; mkdir -p \"$d\"; {{THIRDEYE}} hook --agent codex 2>>\"$d/hook-errors.log\"; exit 0" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "timeout": 3,
+        "command": "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/thirdeye\"; mkdir -p \"$d\"; {{THIRDEYE}} hook --agent codex 2>>\"$d/hook-errors.log\"; exit 0" }] }
+    ]
+  }
+}

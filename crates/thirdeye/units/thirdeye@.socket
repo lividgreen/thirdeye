@@ -1,0 +1,15 @@
+[Unit]
+Description=thirdeye viewer socket for session %i
+
+[Socket]
+# %t is $XDG_RUNTIME_DIR. The socket lives here rather than in the session
+# directory because that path measures 111 bytes against sun_path's 108-byte
+# limit on Linux — it simply will not bind.
+ListenStream=%t/thirdeye/%i.sock
+SocketMode=0600
+# Without this a stopped session leaves a socket file behind that looks alive
+# to the next hook, which then connects to nothing.
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

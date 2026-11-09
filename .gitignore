@@ -1,0 +1,6 @@
+/target
+# Local scratch
+/.superpowers/
+/install.toml
+# Local Claude Code settings: they name paths on this machine
+/.claude/settings.local.json

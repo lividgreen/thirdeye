@@ -1,0 +1,19 @@
+[package]
+name = "thirdeye-adapters"
+description = "Translates agent-specific transports into thirdeye log records"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["agent", "hooks", "thirdeye"]
+categories = ["development-tools"]
+
+[dependencies]
+thirdeye-core.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

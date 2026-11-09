@@ -1,0 +1,6 @@
+# LF in the working tree on every platform. The hook scripts run under bash,
+# which reads a carriage return as part of the command, and the units,
+# plugins and skills are embedded in the binary byte for byte.
+* text=auto eol=lf
+# Except what cmd.exe reads, which wants its own line endings.
+*.cmd text eol=crlf

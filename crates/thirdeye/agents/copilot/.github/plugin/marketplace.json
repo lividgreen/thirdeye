@@ -1,0 +1,12 @@
+{
+  "name": "thirdeye",
+  "owner": { "name": "lividgreen" },
+  "metadata": { "description": "installed by `thirdeye install copilot`" },
+  "plugins": [
+    {
+      "name": "thirdeye",
+      "source": "./thirdeye",
+      "description": "Tracks the files your agent touches, and lets it flag the ones you should read"
+    }
+  ]
+}

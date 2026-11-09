@@ -1,0 +1,7 @@
+{
+  "name": "thirdeye",
+  "description": "Tracks the files your agent touches, and lets it flag the ones you should read",
+  "version": "0.1.0",
+  "author": { "name": "lividgreen" },
+  "license": "MIT OR Apache-2.0"
+}

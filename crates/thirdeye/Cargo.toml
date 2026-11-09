@@ -1,0 +1,35 @@
+[package]
+name = "thirdeye"
+description = "Companion viewer for CLI coding agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["agent", "claude", "codex", "viewer", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+build = "build.rs"
+
+[dependencies]
+thirdeye-core.workspace = true
+thirdeye-adapters.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+listenfd = "1.0.2"
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+
+# std has no stable Unix sockets on Windows, and making one from a raw handle
+# is `unsafe`. This contains it, as `listenfd` does for systemd's descriptor.
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1.2.1"
+# And std cannot start a process that inherits none of this one's handles,
+# which is what a daemon started by a hook must be.
+winsafe = { version = "0.0.29", features = ["kernel"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,55 @@
+# The four gates CLAUDE.md names, on both targets. Each target's lints see
+# code the other's cannot (`cfg(windows)`, `cfg(unix)`), and unused code is a
+# build failure, so one platform passing says nothing about the other.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here writes: a pull request from a fork runs this with its own code.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Warnings are already errors through the workspace lints; this keeps a
+  # rustc warning outside them from passing quietly.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # Windows runners give TEMP as an 8.3 short name (C:\Users\RUNNER~1),
+      # which canonicalizing spells long; no agent hands thirdeye a short
+      # name, and tests building paths under temp_dir() would disagree with
+      # themselves. The runner's own temp directory has one spelling.
+      - name: one spelling of the temp directory
+        shell: bash
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  # What crates.io would receive. A file embedded from outside the crate
+  # builds here and fails only on `cargo publish`.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo package --workspace --exclude xtask
