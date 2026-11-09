@@ -3,15 +3,15 @@ resolver = "3"
 members = ["crates/thirdeye-core", "crates/thirdeye-adapters", "crates/thirdeye", "xtask"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lividgreen/thirdeye"
 
 [workspace.dependencies]
-thirdeye-core = { path = "crates/thirdeye-core", version = "0.0.1" }
-thirdeye-adapters = { path = "crates/thirdeye-adapters", version = "0.0.1" }
+thirdeye-core = { path = "crates/thirdeye-core", version = "0.0.2" }
+thirdeye-adapters = { path = "crates/thirdeye-adapters", version = "0.0.2" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

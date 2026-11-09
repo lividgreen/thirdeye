@@ -4,6 +4,20 @@ All notable changes to thirdeye are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, a minor
 version may change the log format, the head protocol or the command line.
 
+## 0.0.2 — 2026-11-10
+
+### Fixed
+
+- On Windows, a package manager can now upgrade thirdeye while an agent
+  session is running. The daemon and Claude Code's MCP server used to hold
+  `thirdeye.exe` for the whole session, so `winget upgrade` failed with
+  "Access is denied" and left the package half-removed. They now run from a
+  copy kept per build under `%LOCALAPPDATA%\thirdeye-data\bin`, and copies of
+  older builds are deleted once nothing runs them.
+
+  Upgrading *from* 0.0.1 still needs every agent session closed first: those
+  sessions run 0.0.1's daemon from the installed file.
+
 ## 0.0.1 — 2026-11-09
 
 The first release.
