@@ -104,7 +104,8 @@ impl Integration for Claude {
     }
 
     fn publish(&self, cx: &Context) -> Result<()> {
-        tree::publish(&cx.data_for(self.id()), &files(&cx.binary))
+        let server = crate::shadow::run_path(&cx.data, &cx.binary);
+        tree::publish(&cx.data_for(self.id()), &files(&cx.binary, &server))
     }
 
     fn install(&self, cx: &Context, target: &Target) -> Result<()> {
@@ -182,7 +183,7 @@ impl Integration for Claude {
                 },
             });
         };
-        let files = files(&binary);
+        let files = files(&binary, &server_for(cx, &binary));
         let agent_says = match (cx.run)("claude", &["plugin", "list", "--json"], dir) {
             Ok(list) => loaded(
                 &list,
@@ -273,13 +274,13 @@ fn forget_enabled(settings: &Path) -> Result<()> {
 }
 
 /// Every published file, for `binary`.
-fn files(binary: &Path) -> Vec<File> {
+fn files(binary: &Path, server: &Path) -> Vec<File> {
     let mut files: Vec<File> = STATIC
         .iter()
         .map(|(path, body)| File::new(*path, *body))
         .collect();
     files.push(File::new("thirdeye/scripts/thirdeye-hook.sh", hook(binary)).executable());
-    files.push(File::new("thirdeye/.mcp.json", mcp(binary)));
+    files.push(File::new("thirdeye/.mcp.json", mcp(binary, server)));
     // Last, and over everything else: the version is how a Claude that runs
     // its cached copy learns there is a new one.
     let version = format!(
@@ -318,16 +319,34 @@ fn hook(binary: &Path) -> String {
 
 /// The binary itself, never a wrapper: an MCP server's stdout is the
 /// protocol, and nothing may write to it but the server.
-fn mcp(binary: &Path) -> String {
-    let doc = serde_json::json!({
-        "mcpServers": {
-            "thirdeye": {
-                "command": binary.display().to_string(),
-                "args": ["mcp"],
-            }
-        }
+///
+/// The server runs `server`, which on Windows is a per-build copy of
+/// `binary` (`shadow.rs`) so a package manager can replace `binary` while a
+/// session holds the server. `binary` is then recorded in `env`, because
+/// `published_binary` could not otherwise learn which one hooks run.
+fn mcp(binary: &Path, server: &Path) -> String {
+    let mut entry = serde_json::json!({
+        "command": server.display().to_string(),
+        "args": ["mcp"],
     });
+    if server != binary {
+        entry["env"] = serde_json::json!({ PUBLISHED_BINARY: binary.display().to_string() });
+    }
+    let doc = serde_json::json!({ "mcpServers": { "thirdeye": entry } });
     serde_json::to_string_pretty(&doc).expect("a JSON value serializes") + "\n"
+}
+
+/// The `.mcp.json` variable naming the binary hooks run, when the server runs
+/// a copy.
+const PUBLISHED_BINARY: &str = "THIRDEYE_PUBLISHED_BINARY";
+
+/// What the MCP server of a plugin directory should run, without making it.
+fn server_for(cx: &Context, binary: &Path) -> PathBuf {
+    if cfg!(windows) {
+        crate::shadow::path(&cx.data, &crate::published::this_build())
+    } else {
+        binary.to_path_buf()
+    }
 }
 
 fn published_binary(root: &Path) -> Option<PathBuf> {
@@ -338,8 +357,11 @@ fn published_binary(root: &Path) -> Option<PathBuf> {
     let mcp: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("thirdeye/.mcp.json")).ok()?)
             .ok()?;
+    let server = &mcp["mcpServers"]["thirdeye"];
     Some(PathBuf::from(
-        mcp["mcpServers"]["thirdeye"]["command"].as_str()?,
+        server["env"][PUBLISHED_BINARY]
+            .as_str()
+            .or_else(|| server["command"].as_str())?,
     ))
 }
 
@@ -457,9 +479,10 @@ mod tests {
     fn the_version_changes_exactly_when_the_files_do() {
         // `claude plugin update` acts on any change of version string, and
         // only on one; a Claude running its cached copy relies on it.
-        let a = version(&files(Path::new("/a/thirdeye")));
-        assert_eq!(a, version(&files(Path::new("/a/thirdeye"))));
-        assert_ne!(a, version(&files(Path::new("/b/thirdeye"))));
+        let of = |p: &str| version(&files(Path::new(p), Path::new(p)));
+        let a = of("/a/thirdeye");
+        assert_eq!(a, of("/a/thirdeye"));
+        assert_ne!(a, of("/b/thirdeye"));
         assert!(
             a.starts_with(concat!(env!("CARGO_PKG_VERSION"), "+")),
             "{a}"
@@ -472,8 +495,36 @@ mod tests {
         assert!(script.contains(r"bin='/opt/it'\''s/thirdeye'"), "{script}");
         assert!(script.trim_end().ends_with("exit 0"));
         assert!(!script.contains("command -v"), "no PATH lookup");
-        let doc: serde_json::Value = serde_json::from_str(&mcp(Path::new(BINARY))).unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&mcp(Path::new(BINARY), Path::new(BINARY))).unwrap();
         assert_eq!(doc["mcpServers"]["thirdeye"]["command"], BINARY);
+    }
+
+    #[test]
+    fn a_server_run_from_a_copy_still_tells_which_binary_hooks_run() {
+        let text = mcp(
+            Path::new("/pkg/thirdeye"),
+            Path::new("/data/bin/b/thirdeye"),
+        );
+        let doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            doc["mcpServers"]["thirdeye"]["command"],
+            "/data/bin/b/thirdeye"
+        );
+
+        let root = scratch("claude-copy");
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::create_dir_all(root.join("thirdeye")).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            "installed by `thirdeye install claude`",
+        )
+        .unwrap();
+        std::fs::write(root.join("thirdeye/.mcp.json"), text).unwrap();
+        assert_eq!(
+            published_binary(&root),
+            Some(PathBuf::from("/pkg/thirdeye"))
+        );
     }
 
     #[test]

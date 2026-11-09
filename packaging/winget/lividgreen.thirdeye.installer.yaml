@@ -1,0 +1,19 @@
+PackageIdentifier: lividgreen.thirdeye
+PackageVersion: 0.0.1
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: thirdeye.exe
+  PortableCommandAlias: thirdeye
+Commands:
+- thirdeye
+ReleaseDate: 2026-11-09
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.1/thirdeye-x86_64-pc-windows-msvc.zip
+  InstallerSha256: BD4C9EFC0E8B0D64D4CE320DAAC0BBFB88ACD689843E1650E58F8D45DEF17C20
+- Architecture: arm64
+  InstallerUrl: https://github.com/lividgreen/thirdeye/releases/download/v0.0.1/thirdeye-aarch64-pc-windows-msvc.zip
+  InstallerSha256: 55175ADD78FFF155EBEA91DE1418C2873F53F936C298F78E4292CC9A28F626E0
+ManifestType: installer
+ManifestVersion: 1.10.0

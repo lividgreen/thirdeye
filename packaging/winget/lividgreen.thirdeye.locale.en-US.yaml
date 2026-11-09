@@ -1,0 +1,18 @@
+PackageIdentifier: lividgreen.thirdeye
+PackageVersion: 0.0.1
+PackageLocale: en-US
+Publisher: lividgreen
+PublisherUrl: https://github.com/lividgreen
+PackageName: thirdeye
+PackageUrl: https://github.com/lividgreen/thirdeye
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/lividgreen/thirdeye/blob/main/LICENSE-MIT
+ShortDescription: Shows which files a CLI coding agent is working on, beside the agent.
+Tags:
+- ai
+- claude-code
+- coding-agent
+- tui
+ReleaseNotesUrl: https://github.com/lividgreen/thirdeye/releases/tag/v0.0.1
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0
