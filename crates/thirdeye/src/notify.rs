@@ -157,7 +157,12 @@ fn start_daemon(socket: &Path) -> std::io::Result<()> {
                 .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
         })
         .ok_or_else(|| invalid("socket path has no usable stem"))?;
-    let exe = std::env::current_exe()?;
+    // From this build's copy, not the package manager's file: the daemon
+    // lives all session, and a running exe cannot be upgraded in place.
+    let current = std::env::current_exe()?;
+    let exe = thirdeye_core::location::data_root()
+        .map(|data| crate::shadow::run_path(&data, &current))
+        .unwrap_or(current);
     let exe = exe
         .to_str()
         .filter(|path| !path.contains('"'))

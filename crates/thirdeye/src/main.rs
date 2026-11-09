@@ -18,6 +18,7 @@ mod notify;
 mod observe;
 mod published;
 mod session_ref;
+mod shadow;
 mod workspace;
 
 use clap::{Parser, Subcommand, ValueEnum};
