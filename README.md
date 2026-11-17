@@ -350,7 +350,7 @@ only by you (`0700` directories, `0600` files). On Windows it is kept under
 
 ## Documentation
 
-An overview of the project, with the posts about it, is on its page at
+An overview of the project is on its page at
 [www.livid.work/projects/thirdeye](https://www.livid.work/projects/thirdeye/).
 The documents in this repository:
 
