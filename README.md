@@ -350,6 +350,10 @@ only by you (`0700` directories, `0600` files). On Windows it is kept under
 
 ## Documentation
 
+An overview of the project, with the posts about it, is on its page at
+[www.livid.work/projects/thirdeye](https://www.livid.work/projects/thirdeye/).
+The documents in this repository:
+
 | Document | Contents |
 |---|---|
 | [`docs/install.md`](docs/install.md) | installing, updating and removing, agent by agent |
