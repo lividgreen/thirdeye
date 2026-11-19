@@ -166,6 +166,12 @@ jobs:
           PUBLISHED_AT: ${{ github.event.release.published_at }}
         run: |
           set -eu
+          # An unset or empty secret reaches the job as an empty string, and
+          # gh's own error about it names no secret.
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::WWW_DISPATCH_TOKEN is empty"
+            exit 1
+          fi
           jq -n --arg project "$PROJECT" --arg tag "$TAG" --arg name "$NAME" \
                 --arg url "$URL" --arg published_at "$PUBLISHED_AT" '{
             event_type: "project-release",
