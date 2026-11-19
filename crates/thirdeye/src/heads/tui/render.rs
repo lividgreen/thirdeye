@@ -748,6 +748,12 @@ mod tests {
     use ratatui::style::Color;
     use thirdeye_core::LineRange;
 
+    /// `path` with this platform's separator. A directory is drawn with the
+    /// separator the platform's paths use, so what a test expects is too.
+    fn native(path: &str) -> String {
+        path.replace('/', std::path::MAIN_SEPARATOR_STR)
+    }
+
     /// Ten minutes into the session: every planted timestamp is before it.
     const NOW: Timestamp = Timestamp(600_000);
 
@@ -832,14 +838,14 @@ mod tests {
 
     #[test]
     fn the_turn_and_its_files_are_drawn() {
-        let state = state_with(vec![file("/w/src/a.rs", &["read"])]);
+        let state = state_in(&native("/w"), vec![file(&native("/w/src/a.rs"), &["read"])]);
         let screen = screen(&state, 60, 8).join("\n");
         assert!(screen.contains("which should I read?"), "{screen}");
         // The name first, its directory after: the name is what a human
         // scans for. Workspace-relative: the head's choice, which is why the
         // daemon sent paths absolute.
-        assert!(screen.contains("a.rs  src/"), "{screen}");
-        assert!(!screen.contains("/w/src"), "{screen}");
+        assert!(screen.contains(&native("a.rs  src/")), "{screen}");
+        assert!(!screen.contains(&native("/w/src")), "{screen}");
     }
 
     #[test]
@@ -856,9 +862,12 @@ mod tests {
     #[test]
     fn a_directory_that_only_starts_with_the_workspaces_name_is_not_inside_it() {
         // Shortened as text, `/w/abc/x.rs` under `/w/a` drew as `bc/x.rs`.
-        let state = state_in("/w/a", vec![file("/w/abc/x.rs", &["read"])]);
+        let state = state_in(
+            &native("/w/a"),
+            vec![file(&native("/w/abc/x.rs"), &["read"])],
+        );
         let screen = screen(&state, 60, 8).join("\n");
-        assert!(screen.contains("x.rs  /w/abc/"), "{screen}");
+        assert!(screen.contains(&native("x.rs  /w/abc/")), "{screen}");
     }
 
     #[cfg(windows)]
@@ -873,16 +882,23 @@ mod tests {
 
     #[test]
     fn names_directories_and_badges_each_start_in_one_column() {
-        let state = state_with(vec![
-            file("/w/src/main.rs", &["edit", "read"]),
-            file("/w/tests/a.rs", &["read"]),
-        ]);
+        let state = state_in(
+            &native("/w"),
+            vec![
+                file(&native("/w/src/main.rs"), &["edit", "read"]),
+                file(&native("/w/tests/a.rs"), &["read"]),
+            ],
+        );
         let rows = screen(&state, 70, 8);
         let at = |name: &str, needle: &str| {
             let row = rows.iter().find(|r| r.contains(name)).unwrap();
             row[..row.find(needle).unwrap()].chars().count()
         };
-        assert_eq!(at("main.rs", "src/"), at("a.rs", "tests/"), "{rows:#?}");
+        assert_eq!(
+            at("main.rs", &native("src/")),
+            at("a.rs", &native("tests/")),
+            "{rows:#?}"
+        );
         assert_eq!(at("main.rs", "E R"), at("a.rs", "R "), "{rows:#?}");
     }
 
@@ -953,10 +969,13 @@ mod tests {
 
     #[test]
     fn a_narrow_pane_gives_up_the_directory_before_the_name() {
-        let state = state_with(vec![file(
-            "/w/crates/thirdeye/src/heads/tui/render.rs",
-            &["read"],
-        )]);
+        let state = state_in(
+            &native("/w"),
+            vec![file(
+                &native("/w/crates/thirdeye/src/heads/tui/render.rs"),
+                &["read"],
+            )],
+        );
         let row = |width| {
             screen(&state, width, 8)
                 .into_iter()
@@ -964,16 +983,16 @@ mod tests {
                 .unwrap_or_default()
         };
         assert!(
-            row(80).contains("crates/thirdeye/src/heads/tui/"),
+            row(80).contains(&native("crates/thirdeye/src/heads/tui/")),
             "{}",
             row(80)
         );
         // Shortened from the left at whole components, keeping the end nearest
         // the file.
-        assert!(row(45).contains("…/src/heads/tui/"), "{}", row(45));
+        assert!(row(45).contains(&native("…/src/heads/tui/")), "{}", row(45));
         assert!(row(45).contains("render.rs"), "{}", row(45));
         // Dropped, then the name cut last.
-        assert!(!row(30).contains('/'), "{}", row(30));
+        assert!(!row(30).contains(std::path::MAIN_SEPARATOR), "{}", row(30));
         assert!(row(22).contains("render…"), "{}", row(22));
     }
 
