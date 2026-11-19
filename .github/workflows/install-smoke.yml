@@ -92,22 +92,35 @@ jobs:
           [ "$machine" = "${{ matrix.elf }}" ] \
             || { echo "::error::ELF machine $machine, expected ${{ matrix.elf }}"; exit 1; }
 
+      - name: doctor, with nothing wired
+        run: |
+          "$BIN" doctor --user
+
+      # Wiring Claude Code runs its own CLI (`claude plugin …`), so it is
+      # installed for real. The containers check install, update and
+      # uninstall without it.
+      - name: Claude Code
+        if: ${{ !matrix.container }}
+        run: |
+          npm install -g --silent @anthropic-ai/claude-code
+          claude --version
+
       - name: wire a project and check it
+        if: ${{ !matrix.container }}
         run: |
           mkdir -p "$HOME/project"
           "$BIN" install -a claude "$HOME/project" --no-units
-          "$BIN" doctor --user
           "$BIN" doctor "$HOME/project"
 
       - name: self update
         run: |
           "$BIN" self update
           "$BIN" --version
-          "$BIN" doctor "$HOME/project"
+          if [ -d "$HOME/project" ]; then "$BIN" doctor "$HOME/project"; fi
 
       - name: uninstall, project and then thirdeye
         run: |
-          "$BIN" uninstall "$HOME/project"
+          if [ -d "$HOME/project" ]; then "$BIN" uninstall "$HOME/project"; fi
           "$BIN" self uninstall
           [ ! -e "$BIN" ] || { echo "::error::the binary is still there"; exit 1; }
           data="${XDG_DATA_HOME:-$HOME/.local/share}/thirdeye"
@@ -143,7 +156,11 @@ jobs:
           "expecting $want"
 
       - name: irm | iex, as the README says
+        # From the home folder, as a user would: run anywhere else, the
+        # script offers to wire that folder as a project.
+        working-directory: ${{ github.workspace }}/..
         run: |
+          Set-Location $env:USERPROFILE
           $env:THIRDEYE_VERSION = $env:VERSION
           irm "https://github.com/$env:REPO/releases/latest/download/install.ps1" | iex
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
@@ -167,12 +184,22 @@ jobs:
           $path = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (($path -split ';') -notcontains $dir) { throw "user PATH lacks $dir`: $path" }
 
+      - name: doctor, with nothing wired
+        run: |
+          & $env:EXE doctor --user; if ($LASTEXITCODE) { exit 1 }
+
+      # Wiring Claude Code runs its own CLI (`claude plugin …`), so it is
+      # installed for real.
+      - name: Claude Code
+        run: |
+          npm install -g --silent @anthropic-ai/claude-code
+          claude --version; if ($LASTEXITCODE) { exit 1 }
+
       - name: wire a project and check it
         run: |
           $project = Join-Path $env:USERPROFILE 'project'
           New-Item -ItemType Directory -Force $project | Out-Null
           & $env:EXE install -a claude $project; if ($LASTEXITCODE) { exit 1 }
-          & $env:EXE doctor --user; if ($LASTEXITCODE) { exit 1 }
           & $env:EXE doctor $project; if ($LASTEXITCODE) { exit 1 }
 
       - name: self update
