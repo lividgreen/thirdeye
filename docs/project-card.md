@@ -1,6 +1,6 @@
 ---
 title: thirdeye
-summary: "A viewer for command-line coding agents: a live list of the files the agent reads and changes, opened at the lines it touched."
+summary: "Observes your coding agent and highlights the files it touches: a live list of what it reads and changes, each opened at the lines it worked on."
 tags: [coding-agents, claude-code, codex, tui, rust]
 status: active
 ---
