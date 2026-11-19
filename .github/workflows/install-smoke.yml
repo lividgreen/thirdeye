@@ -1,28 +1,36 @@
-# Install a release the way a user does — the one-line installers, from the
-# release's real URLs — on fresh machines, then wire, update and uninstall
-# it.
+# Install a release the way a user does, on fresh machines, then wire,
+# update and uninstall it.
 #
 # scripts/test-install.sh tests the scripts against a locally served
-# archive; this tests what was actually published, on the platforms and
-# architectures nobody here has a machine for. Each runner is a new machine,
-# so nothing it does can leak into another run.
+# archive; this tests a release on the platforms and architectures nobody
+# here has a machine for. Each runner is a new machine, so nothing it does
+# can leak into another run.
 #
-# release.yml calls it for every release while that release is still a
-# pre-release, and promotes the release only if it passes. By hand, it
-# checks any release: `gh workflow run install-smoke -f version=0.0.3`.
+# Two ways in:
+#   - release.yml calls it with `from-this-run`, before anything is public:
+#     the archives its build made and the installers of its commit, with
+#     `self update` pointed at the same files served locally. Only if this
+#     passes is the release published.
+#   - By hand, for a release already published, from its public URLs:
+#     `gh workflow run install-smoke -f version=0.0.5` (default: the latest).
 name: install-smoke
 
 on:
   workflow_call:
     inputs:
       version:
-        description: "The release, e.g. v0.0.4"
+        description: "The release, e.g. v0.0.5"
         required: true
         type: string
+      from-this-run:
+        description: "Install the calling run's archives, not a published release"
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       version:
-        description: "A release, e.g. 0.0.3 (default: the latest)"
+        description: "A published release, e.g. 0.0.5 (default: the latest)"
         required: false
         type: string
 
@@ -32,6 +40,7 @@ permissions:
 env:
   REPO: lividgreen/thirdeye
   VERSION: ${{ inputs.version }}
+  FROM_RUN: ${{ inputs.from-this-run && 'yes' || '' }}
 
 jobs:
   linux:
@@ -39,11 +48,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: ubuntu x86_64, runs-on: ubuntu-latest, elf: "3e" }
-          - { name: ubuntu aarch64, runs-on: ubuntu-24.04-arm, elf: "b7" }
+          - { name: ubuntu x86_64, runs-on: ubuntu-latest, target: x86_64-unknown-linux-musl, elf: "3e" }
+          - { name: ubuntu aarch64, runs-on: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, elf: "b7" }
           # Containers: other distributions, and no systemd at all.
-          - { name: debian, runs-on: ubuntu-latest, container: "debian:stable-slim", elf: "3e" }
-          - { name: alpine, runs-on: ubuntu-latest, container: "alpine:3", elf: "3e" }
+          - { name: debian, runs-on: ubuntu-latest, container: "debian:stable-slim", target: x86_64-unknown-linux-musl, elf: "3e" }
+          - { name: alpine, runs-on: ubuntu-latest, container: "alpine:3", target: x86_64-unknown-linux-musl, elf: "3e" }
     name: linux (${{ matrix.name }})
     runs-on: ${{ matrix.runs-on }}
     container: ${{ matrix.container }}
@@ -61,26 +70,46 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A named release is fetched by its tag: a pre-release is not
-          # what `latest` points at.
-          if [ -n "$VERSION" ]; then
-            want="${VERSION#v}"
-            scripts="https://github.com/$REPO/releases/download/v$want"
+          if [ -n "$VERSION" ]; then want="${VERSION#v}"
           else
-            scripts="https://github.com/$REPO/releases/latest/download"
             want=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$REPO/releases/latest" \
               | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
           fi
           [ -n "$want" ] || { echo "::error::no release found"; exit 1; }
           echo "WANT=$want" >> "$GITHUB_ENV"
-          echo "SCRIPTS=$scripts" >> "$GITHUB_ENV"
           echo "expecting $want"
 
-      - name: curl | sh, as the README says
+      # From this run: its archive for this machine, and its commit's
+      # installers, served as a release would serve them.
+      - if: env.FROM_RUN
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: release
+      - if: env.FROM_RUN
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+      - name: the release, from this run or from its URLs
         run: |
-          curl -fsSL "$SCRIPTS/install.sh" \
-            | THIRDEYE_VERSION="$WANT" sh
+          if [ -n "$FROM_RUN" ]; then
+            cp src/install.sh src/install.ps1 release/
+            echo "SCRIPTS=$PWD/release" >> "$GITHUB_ENV"
+          elif [ -n "$VERSION" ]; then
+            # A named release is fetched by its tag.
+            echo "SCRIPTS=https://github.com/$REPO/releases/download/v$WANT" >> "$GITHUB_ENV"
+          else
+            echo "SCRIPTS=https://github.com/$REPO/releases/latest/download" >> "$GITHUB_ENV"
+          fi
+
+      - name: install, as the README says
+        run: |
+          if [ -n "$FROM_RUN" ]; then
+            sh "$SCRIPTS/install.sh" --archive "$SCRIPTS/thirdeye-${{ matrix.target }}.tar.gz"
+          else
+            curl -fsSL "$SCRIPTS/install.sh" | THIRDEYE_VERSION="$WANT" sh
+          fi
           bin="$HOME/.local/bin/thirdeye"
           [ -x "$bin" ] || { echo "::error::no binary at $bin"; exit 1; }
           echo "BIN=$bin" >> "$GITHUB_ENV"
@@ -114,9 +143,18 @@ jobs:
           "$BIN" install -a claude "$HOME/project" --no-units
           "$BIN" doctor "$HOME/project"
 
+      # From this run, the files are served locally, as GitHub will serve
+      # them; the containers have no server to hand and skip it.
       - name: self update
+        if: ${{ !(env.FROM_RUN && matrix.container) }}
         run: |
-          "$BIN" self update --version "$WANT"
+          if [ -n "$FROM_RUN" ]; then
+            python3 -m http.server 8765 --bind 127.0.0.1 --directory "$SCRIPTS" >/dev/null 2>&1 &
+            for _ in $(seq 50); do curl -fs http://127.0.0.1:8765/install.sh >/dev/null && break; sleep 0.1; done
+            THIRDEYE_BASE_URL=http://127.0.0.1:8765 "$BIN" self update
+          else
+            "$BIN" self update --version "$WANT"
+          fi
           "$BIN" --version
           if [ -d "$HOME/project" ]; then "$BIN" doctor "$HOME/project"; fi
 
@@ -133,8 +171,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: x86_64, runs-on: windows-latest, machine: "8664" }
-          - { name: aarch64, runs-on: windows-11-arm, machine: "aa64" }
+          - { name: x86_64, runs-on: windows-latest, target: x86_64-pc-windows-msvc, machine: "8664" }
+          - { name: aarch64, runs-on: windows-11-arm, target: aarch64-pc-windows-msvc, machine: "aa64" }
     name: windows (${{ matrix.name }})
     runs-on: ${{ matrix.runs-on }}
     defaults:
@@ -150,21 +188,40 @@ jobs:
               "https://api.github.com/repos/$env:REPO/releases/latest").tag_name.TrimStart('v')
           }
           if (-not $want) { throw 'no release found' }
-          # A named release is fetched by its tag: a pre-release is not what
-          # `latest` points at.
-          $scripts = if ($env:VERSION) { "https://github.com/$env:REPO/releases/download/v$want" }
-                     else { "https://github.com/$env:REPO/releases/latest/download" }
           "WANT=$want" >> $env:GITHUB_ENV
-          "SCRIPTS=$scripts" >> $env:GITHUB_ENV
           "expecting $want"
 
-      - name: irm | iex, as the README says
-        # From the home folder, as a user would: run anywhere else, the
-        # script offers to wire that folder as a project.
+      - if: env.FROM_RUN
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: release
+      - if: env.FROM_RUN
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+      - name: the release, from this run or from its URLs
         run: |
+          $scripts = if ($env:FROM_RUN) {
+            Copy-Item src/install.sh, src/install.ps1 release/
+            (Resolve-Path release).Path
+          } elseif ($env:VERSION) { "https://github.com/$env:REPO/releases/download/v$env:WANT" }
+          else { "https://github.com/$env:REPO/releases/latest/download" }
+          "SCRIPTS=$scripts" >> $env:GITHUB_ENV
+
+      - name: install, as the README says
+        run: |
+          # From the home folder, as a user would: run anywhere else, the
+          # script offers to wire that folder as a project.
+          $release = $env:SCRIPTS
           Set-Location $env:USERPROFILE
-          $env:THIRDEYE_VERSION = $env:WANT
-          irm "$env:SCRIPTS/install.ps1" | iex
+          if ($env:FROM_RUN) {
+            $env:THIRDEYE_ARCHIVE = Join-Path $release 'thirdeye-${{ matrix.target }}.zip'
+            Get-Content -Raw (Join-Path $release 'install.ps1') | iex
+          } else {
+            $env:THIRDEYE_VERSION = $env:WANT
+            irm "$release/install.ps1" | iex
+          }
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
           if (-not (Test-Path $exe)) { throw "no binary at $exe" }
           "EXE=$exe" >> $env:GITHUB_ENV
@@ -204,9 +261,22 @@ jobs:
           & $env:EXE install -a claude $project; if ($LASTEXITCODE) { exit 1 }
           & $env:EXE doctor $project; if ($LASTEXITCODE) { exit 1 }
 
+      # From this run, the files are served locally, as GitHub will serve
+      # them.
       - name: self update
         run: |
-          & $env:EXE self update --version $env:WANT; if ($LASTEXITCODE) { exit 1 }
+          if ($env:FROM_RUN) {
+            $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', $env:SCRIPTS -PassThru -WindowStyle Hidden
+            foreach ($i in 1..50) {
+              try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/install.ps1 | Out-Null; break } catch { Start-Sleep -Milliseconds 100 }
+            }
+            $env:THIRDEYE_BASE_URL = 'http://127.0.0.1:8765'
+            & $env:EXE self update; $failed = $LASTEXITCODE
+            Stop-Process $server -ErrorAction SilentlyContinue
+            if ($failed) { exit 1 }
+          } else {
+            & $env:EXE self update --version $env:WANT; if ($LASTEXITCODE) { exit 1 }
+          }
           & $env:EXE --version; if ($LASTEXITCODE) { exit 1 }
           & $env:EXE doctor (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
 

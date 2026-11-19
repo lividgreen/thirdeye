@@ -4,15 +4,7 @@ All notable changes to thirdeye are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, a minor
 version may change the log format, the head protocol or the command line.
 
-## Unreleased
-
-### Fixed
-
-- On Windows, `thirdeye self update` failed when run from PowerShell 7
-  (`Get-FileHash` "not recognized"): the Windows PowerShell it starts
-  inherited PowerShell 7's module path and found none of its own modules.
-
-## v0.0.4 — 2026-11-20
+## v0.0.5 — 2026-11-20
 
 ### Viewer
 
@@ -37,6 +29,15 @@ version may change the log format, the head protocol or the command line.
 - `install.ps1` no longer reports failure after a successful install. Its
   last command could fail on purpose (`git` outside a repository), and
   under `irm | iex` that exit code was read as the script's.
+- On Windows, `thirdeye self update` failed when run from PowerShell 7
+  (`Get-FileHash` "not recognized"): the Windows PowerShell it starts
+  inherited PowerShell 7's module path and found none of its own modules.
+
+## v0.0.4 — 2026-11-20
+
+Published as a pre-release and never made Latest: installing it on fresh
+machines found `thirdeye self update` failing on Windows. Its changes are in
+v0.0.5, with that fixed.
 
 ## v0.0.3 — 2026-11-19
 

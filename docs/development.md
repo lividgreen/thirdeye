@@ -182,36 +182,45 @@ first.
 
 ## Releasing
 
-A release reaches users only after it has been installed, the way they
-install it, on six fresh machines.
+Nothing about a release is public, and no tag exists, until it has been
+installed, the way a user installs it, on six fresh machines, and the
+owner has published it. This follows GitHub's order for immutable
+releases: a draft, its assets, then publish.
 
-1. A pull request bumps the version (`Cargo.toml`, `Cargo.lock`) and turns
-   `## Unreleased` in `CHANGELOG.md` into `## vX.Y.Z — YYYY-MM-DD`. Merge it.
-2. Publish the release as a **pre-release**, from the merge commit's *full*
-   sha (a short one is refused as "not a valid tag"):
+1. **Choose the version.** A pull request sets it in `Cargo.toml` (and
+   `Cargo.lock`) and turns `## Unreleased` in `CHANGELOG.md` into
+   `## vX.Y.Z — YYYY-MM-DD`. Merging that pull request is the decision;
+   nothing later picks or changes the number.
+2. **Build and check it:** `gh workflow run release` (on `main`).
+   `release.yml` then:
+   - **plan**: reads the version from `Cargo.toml`, and stops if its tag
+     exists or the changelog has no heading for it;
+   - **build**: the four archives;
+   - **draft**: puts them, their checksums, both installers and a
+     provenance attestation in a draft release, with the changelog section
+     as notes. A draft creates no tag;
+   - **smoke**: runs `install-smoke.yml` on exactly those files and this
+     commit's installers: Ubuntu x86_64 and aarch64, Debian and Alpine (no
+     systemd), Windows x86_64 and ARM64. Each installs, wires Claude Code
+     into a project, updates (from the same files, served locally) and
+     uninstalls;
+   - **ready**: the run's summary gives the command to publish it.
+3. **Publish it**, as the owner:
 
    ```bash
-   gh release create vX.Y.Z --prerelease --target <full sha> \
-     --title "thirdeye X.Y.Z" --notes-file <the version's changelog section>
+   gh release edit vX.Y.Z --draft=false --latest
    ```
 
-3. `release.yml` then runs on its own:
-   - **build** the four archives and **release** attaches them, with their
-     checksums, the installers and a provenance attestation;
-   - **smoke** runs `install-smoke.yml` for this version, from its own
-     URLs: Ubuntu x86_64 and aarch64, Debian and Alpine (no systemd),
-     Windows x86_64 and ARM64. Each installs, wires Claude Code into a
-     project, updates and uninstalls;
-   - **promote** makes it a full release and Latest, which is what
-     `releases/latest`, the one-line installers and `self update` fetch;
-   - **announce** tells www.livid.work, which updates thirdeye's card.
+   This creates the tag `vX.Y.Z` at the checked commit (the "release tags"
+   ruleset lets only an admin create one) and makes the release Latest,
+   which is what `releases/latest`, the one-line installers and `self
+   update` fetch. Publishing starts `release.yml` again:
+   - **verify**: checks it is Latest, and that every archive at the public
+     URLs matches its checksum and carries this repository's attestation
+     (`gh attestation verify`);
+   - **announce**: tells www.livid.work, which updates thirdeye's card.
 
-A release published as a full release by mistake is held back as a
-pre-release first (`hold`), so nothing can skip the check.
-
-If smoke fails, the release stays a pre-release and no user is given it.
-Fix the problem and release the next version; delete the failed
-pre-release if it is in the way. `gh workflow run install-smoke -f
-version=X.Y.Z` checks any release again; after a manual pass, `gh release
-edit vX.Y.Z --prerelease=false --latest` promotes it by hand, and announcing
-it means re-running the release run's `announce` job.
+If anything fails before publishing, there is a draft and no tag: no
+version is used up. Fix it and run `gh workflow run release` again; the
+draft is replaced. `gh workflow run install-smoke -f version=X.Y.Z`
+checks a published release again from its public URLs.
