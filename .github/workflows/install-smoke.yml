@@ -1,0 +1,199 @@
+# Install a published release the way a user does — the one-line
+# installers, from the real release URLs — on fresh machines, then update
+# and uninstall it.
+#
+# scripts/test-install.sh tests the scripts against a locally served
+# archive; this tests what is actually published, on the platforms and
+# architectures nobody here has a machine for. Each runner is a new machine,
+# so nothing it does can leak into another run.
+#
+# Runs after every release, by hand for any release, and on a pull request
+# that changes this file, so a change to it is seen working before it lands.
+name: install-smoke
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  pull_request:
+    paths:
+      - .github/workflows/install-smoke.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "A release, e.g. 0.0.3 (default: the latest)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REPO: lividgreen/thirdeye
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  linux:
+    # After a release only: the release workflow also runs on pull requests.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'release' &&
+       github.event.workflow_run.conclusion == 'success')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ubuntu x86_64, runs-on: ubuntu-latest, elf: "3e" }
+          - { name: ubuntu aarch64, runs-on: ubuntu-24.04-arm, elf: "b7" }
+          # Containers: other distributions, and no systemd at all.
+          - { name: debian, runs-on: ubuntu-latest, container: "debian:stable-slim", elf: "3e" }
+          - { name: alpine, runs-on: ubuntu-latest, container: "alpine:3", elf: "3e" }
+    name: linux (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: sh -eu {0}
+    steps:
+      - name: what a bare container lacks
+        if: matrix.container
+        run: |
+          if command -v apk >/dev/null; then apk add --no-cache curl ca-certificates
+          else apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null; fi
+
+      - name: the release to expect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$VERSION" ]; then want="${VERSION#v}"
+          else
+            want=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/releases/latest" \
+              | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+          fi
+          [ -n "$want" ] || { echo "::error::no release found"; exit 1; }
+          echo "WANT=$want" >> "$GITHUB_ENV"
+          echo "expecting $want"
+
+      - name: curl | sh, as the README says
+        run: |
+          curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" \
+            | THIRDEYE_VERSION="$VERSION" sh
+          bin="$HOME/.local/bin/thirdeye"
+          [ -x "$bin" ] || { echo "::error::no binary at $bin"; exit 1; }
+          echo "BIN=$bin" >> "$GITHUB_ENV"
+
+      - name: the binary is the release, for this machine
+        run: |
+          "$BIN" --version
+          "$BIN" --version | grep -q "^thirdeye $WANT " \
+            || { echo "::error::expected $WANT"; exit 1; }
+          machine=$(od -An -tx1 -j18 -N1 "$BIN" | tr -d ' ')
+          [ "$machine" = "${{ matrix.elf }}" ] \
+            || { echo "::error::ELF machine $machine, expected ${{ matrix.elf }}"; exit 1; }
+
+      - name: wire a project and check it
+        run: |
+          mkdir -p "$HOME/project"
+          "$BIN" install -a claude "$HOME/project" --no-units
+          "$BIN" doctor --user
+          "$BIN" doctor "$HOME/project"
+
+      - name: self update
+        run: |
+          "$BIN" self update
+          "$BIN" --version
+          "$BIN" doctor "$HOME/project"
+
+      - name: uninstall, project and then thirdeye
+        run: |
+          "$BIN" uninstall "$HOME/project"
+          "$BIN" self uninstall
+          [ ! -e "$BIN" ] || { echo "::error::the binary is still there"; exit 1; }
+          data="${XDG_DATA_HOME:-$HOME/.local/share}/thirdeye"
+          [ ! -e "$data" ] || { echo "::error::$data is still there"; ls -la "$data"; exit 1; }
+
+  windows:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'release' &&
+       github.event.workflow_run.conclusion == 'success')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: x86_64, runs-on: windows-latest, machine: "8664" }
+          - { name: aarch64, runs-on: windows-11-arm, machine: "aa64" }
+    name: windows (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: the release to expect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $want = if ($env:VERSION) { $env:VERSION.TrimStart('v') } else {
+            (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } `
+              "https://api.github.com/repos/$env:REPO/releases/latest").tag_name.TrimStart('v')
+          }
+          if (-not $want) { throw 'no release found' }
+          "WANT=$want" >> $env:GITHUB_ENV
+          "expecting $want"
+
+      - name: irm | iex, as the README says
+        run: |
+          $env:THIRDEYE_VERSION = $env:VERSION
+          irm "https://github.com/$env:REPO/releases/latest/download/install.ps1" | iex
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
+          if (-not (Test-Path $exe)) { throw "no binary at $exe" }
+          "EXE=$exe" >> $env:GITHUB_ENV
+
+      - name: the binary is the release, for this machine
+        run: |
+          $version = & $env:EXE --version
+          $version
+          if ($version -notmatch "^thirdeye $([regex]::Escape($env:WANT)) ") { throw "expected $env:WANT" }
+          # The PE header's machine field: what the binary was built for.
+          $bytes = [IO.File]::ReadAllBytes($env:EXE)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = '{0:x4}' -f [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne '${{ matrix.machine }}') { throw "PE machine $machine, expected ${{ matrix.machine }}" }
+
+      - name: the user PATH names the directory
+        run: |
+          $dir = Split-Path $env:EXE
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (($path -split ';') -notcontains $dir) { throw "user PATH lacks $dir`: $path" }
+
+      - name: wire a project and check it
+        run: |
+          $project = Join-Path $env:USERPROFILE 'project'
+          New-Item -ItemType Directory -Force $project | Out-Null
+          & $env:EXE install -a claude $project; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE doctor --user; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE doctor $project; if ($LASTEXITCODE) { exit 1 }
+
+      - name: self update
+        run: |
+          & $env:EXE self update; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE --version; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE doctor (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
+
+      - name: uninstall, project and then thirdeye
+        run: |
+          & $env:EXE uninstall (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE self uninstall; if ($LASTEXITCODE) { exit 1 }
+          if (Test-Path $env:EXE) { throw 'the binary is still there' }
+          # Known and undecided: whether self uninstall should also remove
+          # the PATH entry and a thirdeye.exe.old it cannot delete while it
+          # runs. Reported, not failed.
+          $dir = Split-Path $env:EXE
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $dir) {
+            "::notice::the user PATH still names $dir"
+          }
+          Get-ChildItem $env:LOCALAPPDATA -Filter 'thirdeye*' -ErrorAction SilentlyContinue |
+            ForEach-Object { "::notice::left under LOCALAPPDATA: $($_.FullName)" }
+          Get-ChildItem $dir -ErrorAction SilentlyContinue |
+            ForEach-Object { "::notice::left in $dir`: $($_.Name)" }
