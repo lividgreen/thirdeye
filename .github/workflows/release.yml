@@ -1,9 +1,9 @@
-# Build, check and publish a release.
+# Build, check and publish a release, in two parts with a person between.
 #
-# Started by hand on `main`: `gh workflow run release`. The version is the
-# one Cargo.toml says, and its tag must not exist yet. Following GitHub's
-# order for immutable releases, nothing is public until everything is in
-# place and checked:
+# Part one, started by hand on `main` (`gh workflow run release`). The
+# version is the one Cargo.toml says, and its tag must not exist yet.
+# Following GitHub's order for immutable releases, nothing is public until
+# everything is in place and checked:
 #
 #   plan     the version, its changelog section, and that its tag is free
 #   build    the four archives
@@ -11,15 +11,19 @@
 #            and a provenance attestation; a draft creates no tag
 #   smoke    install-smoke installs exactly those files, with this commit's
 #            installers, on six fresh machines
-#   publish  only then: publishing creates the tag, locks the release and
-#            makes it Latest, which is what the installers and `self update`
-#            fetch
-#   verify   the public URLs serve the same bytes (after the fact; it cannot
-#            unpublish)
+#   ready    says how to publish it
+#
+# Then the owner publishes the draft (`gh release edit vX.Y.Z --draft=false
+# --latest`). Publishing creates the tag — as the owner, whom the "release
+# tags" ruleset lets create one — and makes it Latest, which is what the
+# installers and `self update` fetch. That fires part two:
+#
+#   verify   the public URLs serve the files their checksums and
+#            attestations vouch for
 #   announce www.livid.work is told
 #
-# A run that fails before `publish` leaves an unpublished draft and no tag:
-# no version is used up. Fix, and run again; the draft is replaced.
+# A run that fails before publishing leaves an unpublished draft and no
+# tag: no version is used up. Fix, and run again; the draft is replaced.
 #
 # A pull request that touches what a release is built from runs `build`
 # alone, so the matrix is known to work before a release depends on it.
@@ -31,6 +35,8 @@ name: release
 
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -82,6 +88,7 @@ jobs:
           echo "releasing $tag from $GITHUB_SHA: $heading"
 
   build:
+    if: github.event_name != 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -212,38 +219,52 @@ jobs:
       version: ${{ needs.plan.outputs.tag }}
       from-this-run: true
 
-  publish:
+  ready:
     needs: [plan, smoke]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: publish, which creates the tag, and make it Latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.plan.outputs.tag }}
-        run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
-
-  # The public URLs, which the drafted files could not be fetched from.
-  verify:
-    needs: [plan, publish]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          path: dist
-          merge-multiple: true
-      - name: latest serves what was built
+      - name: how to publish it
         env:
           TAG: ${{ needs.plan.outputs.tag }}
         run: |
+          {
+            echo "## $TAG is drafted and passed install-smoke"
+            echo
+            echo "Publish it, which creates the tag and makes it Latest:"
+            echo
+            echo '```'
+            echo "gh release edit $TAG -R $GITHUB_REPOSITORY --draft=false --latest"
+            echo '```'
+            echo
+            echo "Publishing starts this workflow again, to verify the public URLs and announce it."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::$TAG is ready: gh release edit $TAG -R $GITHUB_REPOSITORY --draft=false --latest"
+
+  # Part two: the release as published, by its public URLs. Each archive
+  # must match its checksum and carry an attestation from this repository.
+  verify:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Latest is this release
+        run: |
+          latest=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          [ "$latest" = "$TAG" ] \
+            || { echo "::error::Latest is $latest, not $TAG: publish with --latest"; exit 1; }
+      - name: the public URLs serve what the checksums and attestations vouch for
+        run: |
           set -eu
           base="https://github.com/$GITHUB_REPOSITORY/releases/latest/download"
-          for file in dist/*.tar.gz dist/*.zip; do
-            name=$(basename "$file")
-            curl -fsSL "$base/$name" -o "served-$name"
-            cmp "$file" "served-$name" || { echo "::error::$name differs from what was built"; exit 1; }
-            echo "ok  $name"
+          for name in thirdeye-x86_64-unknown-linux-musl.tar.gz thirdeye-aarch64-unknown-linux-musl.tar.gz \
+                      thirdeye-x86_64-pc-windows-msvc.zip thirdeye-aarch64-pc-windows-msvc.zip; do
+            curl -fsSL "$base/$name" -o "$name"
+            curl -fsSL "$base/$name.sha256" -o "$name.sha256"
+            sha256sum -c "$name.sha256"
+            gh attestation verify "$name" -R "$GITHUB_REPOSITORY" >/dev/null
+            echo "ok  $name: checksum and attestation"
           done
           for script in install.sh install.ps1; do
             curl -fsSL "$base/$script" -o /dev/null && echo "ok  $script"
@@ -252,15 +273,15 @@ jobs:
   # Tell www.livid.work about the release, so thirdeye's card there takes
   # the card file, the logo and the changelog's date from this tag (its
   # PROJECT-CONVENTION.md, "Telling www.livid.work about a release"). After
-  # `publish`, so the site never announces a release users are not given.
+  # `verify`, so the site never announces a release users cannot install.
   announce:
-    needs: [plan, publish]
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: the release, as published
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.plan.outputs.tag }}
+          TAG: ${{ github.event.release.tag_name }}
         run: gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json tagName,name,url,publishedAt > release.json
       - name: repository_dispatch project-release to www.livid.work
         env:

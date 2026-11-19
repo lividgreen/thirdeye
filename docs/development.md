@@ -183,38 +183,44 @@ first.
 ## Releasing
 
 Nothing about a release is public, and no tag exists, until it has been
-installed, the way a user installs it, on six fresh machines. This follows
-GitHub's order for immutable releases: a draft, its assets, then publish.
+installed, the way a user installs it, on six fresh machines, and the
+owner has published it. This follows GitHub's order for immutable
+releases: a draft, its assets, then publish.
 
 1. **Choose the version.** A pull request sets it in `Cargo.toml` (and
    `Cargo.lock`) and turns `## Unreleased` in `CHANGELOG.md` into
    `## vX.Y.Z — YYYY-MM-DD`. Merging that pull request is the decision;
    nothing later picks or changes the number.
-2. **Start the release:** `gh workflow run release` (on `main`). Then
-   `release.yml` does the rest:
-   - **plan** reads the version from `Cargo.toml`, and stops if its tag
+2. **Build and check it:** `gh workflow run release` (on `main`).
+   `release.yml` then:
+   - **plan**: reads the version from `Cargo.toml`, and stops if its tag
      exists or the changelog has no heading for it;
-   - **build** makes the four archives;
-   - **draft** puts them, their checksums, both installers and a provenance
-     attestation in a draft release, with the changelog section as notes.
-     A draft creates no tag;
-   - **smoke** runs `install-smoke.yml` on exactly those files and this
+   - **build**: the four archives;
+   - **draft**: puts them, their checksums, both installers and a
+     provenance attestation in a draft release, with the changelog section
+     as notes. A draft creates no tag;
+   - **smoke**: runs `install-smoke.yml` on exactly those files and this
      commit's installers: Ubuntu x86_64 and aarch64, Debian and Alpine (no
      systemd), Windows x86_64 and ARM64. Each installs, wires Claude Code
      into a project, updates (from the same files, served locally) and
      uninstalls;
-   - **publish**, only if smoke passed: the release is published, which
-     creates the tag `vX.Y.Z` at that commit, and made Latest, which is what
-     `releases/latest`, the one-line installers and `self update` fetch;
-   - **verify** downloads the archives from the public URLs and compares
-     them with what was built;
-   - **announce** tells www.livid.work, which updates thirdeye's card.
+   - **ready**: the run's summary gives the command to publish it.
+3. **Publish it**, as the owner:
 
-If anything fails before **publish**, there is a draft and no tag: no
+   ```bash
+   gh release edit vX.Y.Z --draft=false --latest
+   ```
+
+   This creates the tag `vX.Y.Z` at the checked commit (the "release tags"
+   ruleset lets only an admin create one) and makes the release Latest,
+   which is what `releases/latest`, the one-line installers and `self
+   update` fetch. Publishing starts `release.yml` again:
+   - **verify**: checks it is Latest, and that every archive at the public
+     URLs matches its checksum and carries this repository's attestation
+     (`gh attestation verify`);
+   - **announce**: tells www.livid.work, which updates thirdeye's card.
+
+If anything fails before publishing, there is a draft and no tag: no
 version is used up. Fix it and run `gh workflow run release` again; the
 draft is replaced. `gh workflow run install-smoke -f version=X.Y.Z`
 checks a published release again from its public URLs.
-
-Publishing creates a `v*` tag from the workflow, so the "release tags"
-ruleset lets GitHub Actions through; everyone else still needs to be an
-admin to create, move or delete one.
