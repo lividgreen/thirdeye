@@ -142,3 +142,37 @@ jobs:
             || { echo "Cargo.toml's version is not $version"; exit 1; }
           cp install.sh install.ps1 dist/
           gh release upload "$tag" dist/* --clobber
+
+  # Tell www.livid.work about the release, so thirdeye's card there takes
+  # the card file, the logo and the changelog's date from this tag (its
+  # PROJECT-CONVENTION.md, "Telling www.livid.work about a release"). After
+  # `release`, so the site never announces a release whose archives are
+  # missing. The event is the release itself, so it already carries every
+  # field; nothing is read back.
+  announce:
+    needs: release
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: repository_dispatch project-release to www.livid.work
+        env:
+          # Fine-grained, Contents read/write on lividgreen/www.livid.work
+          # and nothing else.
+          GH_TOKEN: ${{ secrets.WWW_DISPATCH_TOKEN }}
+          PROJECT: ${{ github.event.repository.name }}
+          TAG: ${{ github.event.release.tag_name }}
+          NAME: ${{ github.event.release.name }}
+          URL: ${{ github.event.release.html_url }}
+          PUBLISHED_AT: ${{ github.event.release.published_at }}
+        run: |
+          set -eu
+          jq -n --arg project "$PROJECT" --arg tag "$TAG" --arg name "$NAME" \
+                --arg url "$URL" --arg published_at "$PUBLISHED_AT" '{
+            event_type: "project-release",
+            client_payload: {
+              project: $project, tag: $tag, name: $name,
+              url: $url, published_at: $published_at
+            }
+          }' > dispatch.json
+          cat dispatch.json
+          gh api --method POST repos/lividgreen/www.livid.work/dispatches --input dispatch.json
