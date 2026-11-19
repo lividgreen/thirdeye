@@ -1,23 +1,26 @@
 # thirdeye
 
+![thirdeye logo](docs/assets/logo/logo.svg)
+
+**Observes your coding agent and highlights the files it touches.**
+It runs beside a command-line coding agent such as Claude Code or Codex CLI and keeps a live list of the files the agent reads and changes, each opened at the lines it worked on.
+
 [![CI](https://github.com/lividgreen/thirdeye/actions/workflows/ci.yml/badge.svg)](https://github.com/lividgreen/thirdeye/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/lividgreen/thirdeye?display_name=tag)](https://github.com/lividgreen/thirdeye/releases)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Rust 1.94+](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org)
 [![Platforms: Linux, Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](#platforms)
-
-thirdeye shows which files a coding agent is working on, while it works.
 
 > [!WARNING]
 > thirdeye is in early development. It is tested against the agents and
 > terminals listed below, but its command line, its log format and its viewer
 > may change before v0.1.0. See [Status](#status).
 
-thirdeye runs beside a command-line coding agent such as Claude Code or Codex
-CLI. It keeps a live list of the files the agent has read, edited, written,
-deleted or searched, grouped by prompt and ranked by how much the agent did
-with each. Selecting a file opens it at the lines the agent touched, or shows
-its diff. The agent can also *flag* a file it wants you to look at: a flagged
-file goes to the top of the list, with the agent's reason.
+The list holds the files the agent has read, edited, written, deleted or
+searched, grouped by prompt and ranked by how much the agent did with each.
+Selecting a file opens it at the lines the agent touched, or shows its diff.
+The agent can also *flag* a file it wants you to look at: a flagged file goes
+to the top of the list, with the agent's reason.
 
 The list opens by itself: as a split beside the agent in tmux, Zellij,
 WezTerm or kitty, and as a separate window in terminals that cannot split.
