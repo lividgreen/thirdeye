@@ -4,7 +4,17 @@ All notable changes to thirdeye are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, a minor
 version may change the log format, the head protocol or the command line.
 
-## 0.0.2 — 2026-11-10
+## v0.0.3 — 2026-11-19
+
+No change to the binary: upgrading from 0.0.2 is optional.
+
+### Project
+
+- thirdeye has a logo, and its page on
+  [www.livid.work](https://www.livid.work/projects/thirdeye/) now follows
+  the repository: each release updates its description and logo there.
+
+## v0.0.2 — 2026-11-10
 
 ### Fixed
 
@@ -18,7 +28,7 @@ version may change the log format, the head protocol or the command line.
   Upgrading *from* 0.0.1 still needs every agent session closed first: those
   sessions run 0.0.1's daemon from the installed file.
 
-## 0.0.1 — 2026-11-09
+## v0.0.1 — 2026-11-09
 
 The first release.
 

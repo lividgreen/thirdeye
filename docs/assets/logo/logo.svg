@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="160" height="160" role="img" aria-labelledby="t">
+  <title id="t">thirdeye logo</title>
+  <defs>
+    <linearGradient id="viewer-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fafcff"/>
+      <stop offset="1" stop-color="#dbe2eb"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Badge: navy rim, slate fill, amber pinstripe -->
+  <rect x="23.5" y="23.5" width="977" height="977" rx="170" fill="#0a1a30"/>
+  <rect x="53" y="53" width="919" height="919" rx="150" fill="#182536"/>
+  <rect x="57.5" y="57.5" width="910" height="910" rx="145.5" fill="none" stroke="#f2b84b" stroke-width="8.5"/>
+
+  <!-- Left pane: mint, the agent's prompt -->
+  <g filter="url(#shadow)">
+    <rect x="132" y="212" width="376" height="600" rx="48" fill="#88ebb8"/>
+    <rect x="162" y="242" width="316" height="540" rx="30" fill="none" stroke="#034a2a" stroke-width="11.5"/>
+    <path d="M210 420 L310 512 L210 604" fill="none" stroke="#0a462d" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="340" y="582" width="104" height="44" rx="22" fill="#0a462d"/>
+  </g>
+
+  <!-- Right pane: silver, the viewer: an eye over a ranked list -->
+  <g filter="url(#shadow)">
+    <rect x="532" y="212" width="360" height="600" rx="48" fill="url(#viewer-fill)"/>
+    <rect x="562" y="242" width="300" height="540" rx="30" fill="none" stroke="#353c4e" stroke-width="10.5"/>
+    <g transform="translate(712 368)">
+      <path d="M-128 0 C-74 -82 74 -82 128 0 C74 82 -74 82 -128 0 Z" fill="#ffffff" stroke="#0a1a30" stroke-width="24" stroke-linejoin="round"/>
+      <circle r="50" fill="#f2b84b"/>
+      <circle r="25" fill="#0a1a30"/>
+      <circle cx="10" cy="-11" r="10" fill="#ffffff"/>
+    </g>
+    <!-- The list, hottest first -->
+    <rect x="600" y="504" width="224" height="36" rx="18" fill="#e9772a"/>
+    <rect x="600" y="584" width="168" height="36" rx="18" fill="#f2b84b"/>
+    <rect x="600" y="664" width="112" height="36" rx="18" fill="#9aa7b6"/>
+  </g>
+</svg>
