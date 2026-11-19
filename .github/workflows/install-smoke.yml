@@ -158,7 +158,6 @@ jobs:
       - name: irm | iex, as the README says
         # From the home folder, as a user would: run anywhere else, the
         # script offers to wire that folder as a project.
-        working-directory: ${{ github.workspace }}/..
         run: |
           Set-Location $env:USERPROFILE
           $env:THIRDEYE_VERSION = $env:VERSION
