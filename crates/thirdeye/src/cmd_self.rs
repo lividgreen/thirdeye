@@ -114,6 +114,12 @@ sh "$t"; s=$?; rm -f "$t"; exit $s"#,
 fn installer_command(base: &str) -> Command {
     let mut command = Command::new("powershell");
     command
+        // Run from PowerShell 7, this would hand Windows PowerShell 7's
+        // module path, and it would find none of its own modules: install.ps1
+        // failed with `Get-FileHash` "not recognized" (found by install-smoke,
+        // where `self update` runs under pwsh). Without the variable it
+        // builds its own default.
+        .env_remove("PSModulePath")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
         // `Stop`, so a failed download is a failed update.
         .arg(format!(
@@ -285,6 +291,18 @@ fn aside(binary: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_powershell_is_not_handed_another_powershells_modules() {
+        let command = installer_command("https://example.invalid");
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "PSModulePath" && value.is_none()),
+            "PSModulePath must be removed, not inherited"
+        );
+    }
 
     #[test]
     fn a_package_managers_binary_is_never_replaced_behind_its_back() {
