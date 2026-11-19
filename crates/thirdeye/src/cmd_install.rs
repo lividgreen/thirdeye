@@ -67,13 +67,23 @@ fn run_agent_with(
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// What npm installs on Windows is a `.cmd` beside its script, which
-/// `Command` does not find by the bare name.
+/// The name to start `program` by.
 fn resolve(program: &str) -> String {
-    if cfg!(windows) && !integration::detected_exact(program) {
-        let cmd = format!("{program}.cmd");
-        if integration::detected_exact(&cmd) {
-            return cmd;
+    resolve_with(program, cfg!(windows), integration::detected_exact)
+}
+
+/// On Windows `Command` finds `<name>.exe` and nothing else, so a bare name
+/// on `PATH` proves nothing: npm puts an extensionless shell script there,
+/// beside the `.cmd` that actually runs (found by install-smoke, where
+/// `claude` from npm was "not found"). An `.exe` wins, then a `.cmd`, then
+/// a `.bat`.
+fn resolve_with(program: &str, windows: bool, on_path: impl Fn(&str) -> bool) -> String {
+    if windows {
+        for extension in ["exe", "cmd", "bat"] {
+            let name = format!("{program}.{extension}");
+            if on_path(&name) {
+                return name;
+            }
         }
     }
     program.to_string()
@@ -561,6 +571,26 @@ impl Tty {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn on_windows_an_npm_cli_is_started_by_its_cmd_not_its_shell_script() {
+        let npm = |name: &str| matches!(name, "claude" | "claude.cmd" | "claude.ps1");
+        assert_eq!(resolve_with("claude", true, npm), "claude.cmd");
+    }
+
+    #[test]
+    fn on_windows_an_exe_wins_over_a_cmd() {
+        let both = |name: &str| matches!(name, "claude.exe" | "claude.cmd");
+        assert_eq!(resolve_with("claude", true, both), "claude.exe");
+    }
+
+    #[test]
+    fn elsewhere_a_program_is_started_by_its_name() {
+        let npm = |name: &str| matches!(name, "claude" | "claude.cmd");
+        assert_eq!(resolve_with("claude", false, npm), "claude");
+        // And on Windows, one found nowhere keeps its name for the error.
+        assert_eq!(resolve_with("claude", true, |_: &str| false), "claude");
+    }
 
     fn spec(text: &str) -> AgentSpec {
         text.parse().unwrap()

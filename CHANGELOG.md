@@ -20,6 +20,16 @@ version may change the log format, the head protocol or the command line.
 - Colours follow the terminal: 24-bit where it says it has them, its own
   palette otherwise, and none when `NO_COLOR` is set.
 
+### Fixed
+
+- On Windows, `thirdeye install` could not run an agent's CLI installed with
+  npm (`claude` from `npm install -g`): it started the extensionless shell
+  script npm puts beside the `.cmd`, which Windows cannot run. It now
+  starts the `.exe`, `.cmd` or `.bat`, in that order.
+- `install.ps1` no longer reports failure after a successful install. Its
+  last command could fail on purpose (`git` outside a repository), and
+  under `irm | iex` that exit code was read as the script's.
+
 ## v0.0.3 — 2026-11-19
 
 No change to the binary: upgrading from 0.0.2 is optional.
