@@ -4,6 +4,22 @@ All notable changes to thirdeye are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, a minor
 version may change the log format, the head protocol or the command line.
 
+## Unreleased
+
+### Viewer
+
+- A new look: a thin frame naming the workspace, the agent and the policy;
+  a mark for the turn in progress; each file's name and directory in
+  aligned columns, a coloured letter for what the agent did, and how long
+  ago. A file that changed on disk after the agent read it is marked `⚠`.
+- Within a turn, flagged files come first, then the files the agent
+  changed, then the rest, most recent first.
+- An open file takes the whole pane when the pane is narrower than 100
+  columns. Long lines wrap under the text, not under the line numbers.
+- `?` shows every key and what each mark means.
+- Colours follow the terminal: 24-bit where it says it has them, its own
+  palette otherwise, and none when `NO_COLOR` is set.
+
 ## v0.0.3 — 2026-11-19
 
 No change to the binary: upgrading from 0.0.2 is optional.
