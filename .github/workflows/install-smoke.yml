@@ -1,27 +1,24 @@
-# Install a published release the way a user does — the one-line
-# installers, from the real release URLs — on fresh machines, then update
-# and uninstall it.
+# Install a release the way a user does — the one-line installers, from the
+# release's real URLs — on fresh machines, then wire, update and uninstall
+# it.
 #
 # scripts/test-install.sh tests the scripts against a locally served
-# archive; this tests what is actually published, on the platforms and
+# archive; this tests what was actually published, on the platforms and
 # architectures nobody here has a machine for. Each runner is a new machine,
 # so nothing it does can leak into another run.
 #
-# Runs after every release, by hand for any release, and on a pull request
-# that changes this file or an installer. A pull request's run takes the
-# installers from its own head, with the published archives, so a change to
-# a script is seen working before a release carries it.
+# release.yml calls it for every release while that release is still a
+# pre-release, and promotes the release only if it passes. By hand, it
+# checks any release: `gh workflow run install-smoke -f version=0.0.3`.
 name: install-smoke
 
 on:
-  workflow_run:
-    workflows: [release]
-    types: [completed]
-  pull_request:
-    paths:
-      - .github/workflows/install-smoke.yml
-      - install.sh
-      - install.ps1
+  workflow_call:
+    inputs:
+      version:
+        description: "The release, e.g. v0.0.4"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -35,20 +32,9 @@ permissions:
 env:
   REPO: lividgreen/thirdeye
   VERSION: ${{ inputs.version }}
-  # Where install.sh and install.ps1 come from: the release, except on a
-  # pull request, which tests its own.
-  SCRIPTS: >-
-    ${{ github.event_name == 'pull_request'
-        && format('https://raw.githubusercontent.com/lividgreen/thirdeye/{0}', github.event.pull_request.head.sha)
-        || 'https://github.com/lividgreen/thirdeye/releases/latest/download' }}
 
 jobs:
   linux:
-    # After a release only: the release workflow also runs on pull requests.
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.event == 'release' &&
-       github.event.workflow_run.conclusion == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -75,20 +61,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -n "$VERSION" ]; then want="${VERSION#v}"
+          # A named release is fetched by its tag: a pre-release is not
+          # what `latest` points at.
+          if [ -n "$VERSION" ]; then
+            want="${VERSION#v}"
+            scripts="https://github.com/$REPO/releases/download/v$want"
           else
+            scripts="https://github.com/$REPO/releases/latest/download"
             want=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$REPO/releases/latest" \
               | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
           fi
           [ -n "$want" ] || { echo "::error::no release found"; exit 1; }
           echo "WANT=$want" >> "$GITHUB_ENV"
+          echo "SCRIPTS=$scripts" >> "$GITHUB_ENV"
           echo "expecting $want"
 
       - name: curl | sh, as the README says
         run: |
           curl -fsSL "$SCRIPTS/install.sh" \
-            | THIRDEYE_VERSION="$VERSION" sh
+            | THIRDEYE_VERSION="$WANT" sh
           bin="$HOME/.local/bin/thirdeye"
           [ -x "$bin" ] || { echo "::error::no binary at $bin"; exit 1; }
           echo "BIN=$bin" >> "$GITHUB_ENV"
@@ -124,7 +116,7 @@ jobs:
 
       - name: self update
         run: |
-          "$BIN" self update
+          "$BIN" self update --version "$WANT"
           "$BIN" --version
           if [ -d "$HOME/project" ]; then "$BIN" doctor "$HOME/project"; fi
 
@@ -137,10 +129,6 @@ jobs:
           [ ! -e "$data" ] || { echo "::error::$data is still there"; ls -la "$data"; exit 1; }
 
   windows:
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.event == 'release' &&
-       github.event.workflow_run.conclusion == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -162,7 +150,12 @@ jobs:
               "https://api.github.com/repos/$env:REPO/releases/latest").tag_name.TrimStart('v')
           }
           if (-not $want) { throw 'no release found' }
+          # A named release is fetched by its tag: a pre-release is not what
+          # `latest` points at.
+          $scripts = if ($env:VERSION) { "https://github.com/$env:REPO/releases/download/v$want" }
+                     else { "https://github.com/$env:REPO/releases/latest/download" }
           "WANT=$want" >> $env:GITHUB_ENV
+          "SCRIPTS=$scripts" >> $env:GITHUB_ENV
           "expecting $want"
 
       - name: irm | iex, as the README says
@@ -170,7 +163,7 @@ jobs:
         # script offers to wire that folder as a project.
         run: |
           Set-Location $env:USERPROFILE
-          $env:THIRDEYE_VERSION = $env:VERSION
+          $env:THIRDEYE_VERSION = $env:WANT
           irm "$env:SCRIPTS/install.ps1" | iex
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
           if (-not (Test-Path $exe)) { throw "no binary at $exe" }
@@ -213,7 +206,7 @@ jobs:
 
       - name: self update
         run: |
-          & $env:EXE self update; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE self update --version $env:WANT; if ($LASTEXITCODE) { exit 1 }
           & $env:EXE --version; if ($LASTEXITCODE) { exit 1 }
           & $env:EXE doctor (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
 
