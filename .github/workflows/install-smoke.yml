@@ -8,7 +8,9 @@
 # so nothing it does can leak into another run.
 #
 # Runs after every release, by hand for any release, and on a pull request
-# that changes this file, so a change to it is seen working before it lands.
+# that changes this file or an installer. A pull request's run takes the
+# installers from its own head, with the published archives, so a change to
+# a script is seen working before a release carries it.
 name: install-smoke
 
 on:
@@ -18,6 +20,8 @@ on:
   pull_request:
     paths:
       - .github/workflows/install-smoke.yml
+      - install.sh
+      - install.ps1
   workflow_dispatch:
     inputs:
       version:
@@ -31,6 +35,12 @@ permissions:
 env:
   REPO: lividgreen/thirdeye
   VERSION: ${{ inputs.version }}
+  # Where install.sh and install.ps1 come from: the release, except on a
+  # pull request, which tests its own.
+  SCRIPTS: >-
+    ${{ github.event_name == 'pull_request'
+        && format('https://raw.githubusercontent.com/lividgreen/thirdeye/{0}', github.event.pull_request.head.sha)
+        || 'https://github.com/lividgreen/thirdeye/releases/latest/download' }}
 
 jobs:
   linux:
@@ -77,7 +87,7 @@ jobs:
 
       - name: curl | sh, as the README says
         run: |
-          curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" \
+          curl -fsSL "$SCRIPTS/install.sh" \
             | THIRDEYE_VERSION="$VERSION" sh
           bin="$HOME/.local/bin/thirdeye"
           [ -x "$bin" ] || { echo "::error::no binary at $bin"; exit 1; }
@@ -161,7 +171,7 @@ jobs:
         run: |
           Set-Location $env:USERPROFILE
           $env:THIRDEYE_VERSION = $env:VERSION
-          irm "https://github.com/$env:REPO/releases/latest/download/install.ps1" | iex
+          irm "$env:SCRIPTS/install.ps1" | iex
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
           if (-not (Test-Path $exe)) { throw "no binary at $exe" }
           "EXE=$exe" >> $env:GITHUB_ENV
