@@ -4,6 +4,14 @@ All notable changes to thirdeye are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, a minor
 version may change the log format, the head protocol or the command line.
 
+## Unreleased
+
+### Fixed
+
+- On Windows, `thirdeye self update` failed when run from PowerShell 7
+  (`Get-FileHash` "not recognized"): the Windows PowerShell it starts
+  inherited PowerShell 7's module path and found none of its own modules.
+
 ## v0.0.4 — 2026-11-20
 
 ### Viewer
