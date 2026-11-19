@@ -1606,6 +1606,7 @@ dependencies = [
  "thirdeye-core",
  "toml_edit",
  "uds_windows",
+ "unicode-width",
  "winsafe",
 ]
 

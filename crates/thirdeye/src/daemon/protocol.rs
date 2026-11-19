@@ -16,10 +16,11 @@
 //! for one session, and the socket path is already the length-constrained
 //! resource (§3).
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use thirdeye_core::{EventKind, LineRange, Timestamp, Turn};
+use thirdeye_core::{AgentId, EventKind, LineRange, Timestamp, Turn};
 
 /// Bumped when an existing message's meaning changes.
 ///
@@ -103,6 +104,10 @@ pub enum ServerMessage {
         turns: Vec<TurnView>,
         view: ViewState,
         policy: PolicyMode,
+        /// The agent the session belongs to, as [`agent_name`] spells it.
+        /// Absent from an older daemon, and before any file event.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
     },
     /// Everything after the snapshot.
     ///
@@ -232,6 +237,30 @@ pub struct FileView {
     /// the human less than not flagging it would.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flag: Option<FlagView>,
+    /// When the file's latest event in this turn happened. A head shows its
+    /// age; `None` only from an older daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_touched: Option<Timestamp>,
+    /// The file changed on disk after the agent last read or wrote it.
+    /// False when it did not, and also when that cannot be told: a head
+    /// may claim a file changed, never that it is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+}
+
+/// An agent's id as it crosses the wire: the same spelling the log uses.
+pub fn agent_name(agent: &AgentId) -> String {
+    match agent {
+        AgentId::Claude => "claude".into(),
+        AgentId::Codex => "codex".into(),
+        AgentId::OpenCode => "opencode".into(),
+        AgentId::Pi => "pi".into(),
+        AgentId::Copilot => "copilot".into(),
+        AgentId::Antigravity => "antigravity".into(),
+        AgentId::Grok => "grok".into(),
+        AgentId::Cursor => "cursor".into(),
+        AgentId::Generic(name) => name.clone(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,7 +305,10 @@ impl TurnView {
     /// One row per path, not one per event: two reads of a file are one thing
     /// on screen. The newest flag wins, because an agent that flags a file
     /// twice has changed its mind about why.
-    pub fn from_turn(turn: &Turn) -> Self {
+    ///
+    /// `stale` is the set of files the daemon found changed on disk since the
+    /// agent last held their content; the turn itself cannot know it.
+    pub fn from_turn(turn: &Turn, stale: &BTreeSet<PathBuf>) -> Self {
         let mut paths: Vec<_> = turn.events.iter().map(|e| e.path.clone()).collect();
         paths.sort();
         paths.dedup();
@@ -301,12 +333,15 @@ impl TurnView {
                 // The most recent range wins: it is where the agent last was,
                 // which is where a human following along wants to land.
                 let range = mine().rev().find_map(|e| e.kind.range());
+                let last_touched = mine().map(|e| e.ts).max();
 
                 FileView {
+                    stale: stale.contains(&path),
                     path,
                     kinds,
                     range,
                     flag,
+                    last_touched,
                 }
             })
             .collect();
@@ -410,11 +445,29 @@ mod tests {
             event(3, "/w/b.rs", EventKind::Read { range: None }),
         ];
         let turns = group_into_turns(&records);
-        let view = TurnView::from_turn(&turns[0]);
+        let view = TurnView::from_turn(&turns[0], &BTreeSet::new());
 
         assert_eq!(view.files.len(), 2, "two reads of one file are one row");
         assert_eq!(view.files[0].path, PathBuf::from("/w/a.rs"));
         assert_eq!(view.files[0].kinds, vec!["read", "write"]);
+    }
+
+    #[test]
+    fn a_file_carries_when_it_was_last_touched_and_whether_it_went_stale() {
+        let records = [
+            event(1, "/w/a.rs", EventKind::Read { range: None }),
+            event(7, "/w/a.rs", EventKind::Write),
+            event(3, "/w/b.rs", EventKind::Read { range: None }),
+        ];
+        let turns = group_into_turns(&records);
+        let stale = BTreeSet::from([PathBuf::from("/w/b.rs")]);
+        let view = TurnView::from_turn(&turns[0], &stale);
+
+        assert_eq!(view.files[0].last_touched, Some(Timestamp(7)));
+        assert!(!view.files[0].stale);
+        assert!(view.files[1].stale);
+        // Absent rather than false on the wire, so older heads see nothing new.
+        assert!(!encode(&view.files[0]).contains("stale"));
     }
 
     #[test]
@@ -437,7 +490,7 @@ mod tests {
             ),
         ];
         let turns = group_into_turns(&records);
-        let view = TurnView::from_turn(&turns[0]);
+        let view = TurnView::from_turn(&turns[0], &BTreeSet::new());
         assert_eq!(view.files[0].range, Some(LineRange::new(80, 90)));
     }
 
@@ -454,7 +507,7 @@ mod tests {
             },
         )];
         let turns = group_into_turns(&records);
-        let view = TurnView::from_turn(&turns[0]);
+        let view = TurnView::from_turn(&turns[0], &BTreeSet::new());
 
         let flag = view.files[0].flag.as_ref().unwrap();
         assert_eq!(flag.reason, "read this one");
@@ -488,7 +541,7 @@ mod tests {
             ),
         ];
         let turns = group_into_turns(&records);
-        let view = TurnView::from_turn(&turns[0]);
+        let view = TurnView::from_turn(&turns[0], &BTreeSet::new());
         assert_eq!(
             view.files[0].flag.as_ref().unwrap().reason,
             "actually, this"

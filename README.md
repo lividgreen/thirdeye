@@ -164,6 +164,7 @@ agent flags a file, because a separate window would take focus from the agent;
 | `Enter`, `Space` | open a file at the lines the agent touched; fold or unfold a turn |
 | `d` | switch a file between its diff and its content |
 | `Esc` | return to the list |
+| `?` | show every key, and what the marks and badges mean |
 | `q` | hide until the next turn's edits |
 | `m` | hide until the next edit |
 | `Q` | hide for the rest of the session |
@@ -266,8 +267,7 @@ find something.
 
 Until v0.1.0, expect the following:
 
-- **The viewer** works, but its presentation is basic. Its layout, colours
-  and key bindings are still being improved and will change.
+- **The viewer** may still change in its layout, colours and key bindings.
 - **The command line, the log format and the viewer protocol** may change
   between 0.0.x releases.
 - **On native Windows**, only Claude Code is supported, and only Windows 10

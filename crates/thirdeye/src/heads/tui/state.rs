@@ -30,6 +30,8 @@ pub enum Key {
     Hide(HideUntil),
     /// Leave without saying; the daemon applies its default.
     Quit,
+    /// Show or hide the help overlay.
+    Help,
 }
 
 /// One line in the list pane.
@@ -89,7 +91,11 @@ pub struct HeadState {
     /// What the daemon says its policy is, so the head can show it. The head
     /// never decides policy; it only asks for changes.
     pub policy: PolicyMode,
+    /// The agent the session belongs to, for the frame's bottom edge.
+    pub agent: Option<String>,
     pub detail: Option<Detail>,
+    /// The help overlay is showing.
+    pub help: bool,
     /// Cursor over visible rows. Scroll offset is deliberately absent — it
     /// depends on the window size, which is why §4.3 keeps it out of the
     /// daemon; here it is the renderer's business, recomputed per frame.
@@ -106,19 +112,24 @@ impl HeadState {
             turns: Vec::new(),
             view: ViewState::default(),
             policy: PolicyMode::default(),
+            agent: None,
             detail: None,
+            help: false,
             cursor: 0,
             status: None,
             should_quit: false,
         }
     }
 
-    /// Files of `turn`, in display order: flagged first, then by path.
+    /// Files of `turn`, in display order: flagged first, then the files the
+    /// agent changed, then the rest; the most recently touched first within
+    /// each, and by path when nothing else tells two apart.
     ///
     /// The daemon sorts by path alone, because ordering by attention is a
     /// presentation decision. A flagged file is the one entry the agent
-    /// deliberately asked the human to look at; burying it alphabetically
-    /// defeats the point of flagging it.
+    /// deliberately asked the human to look at, and the file it is changing
+    /// now is the next; alphabetical order puts either wherever its name
+    /// happens to fall.
     pub fn ordered_files(&self, turn: usize) -> Vec<usize> {
         let Some(turn) = self.turns.get(turn) else {
             return Vec::new();
@@ -129,6 +140,8 @@ impl HeadState {
             b.flag
                 .is_some()
                 .cmp(&a.flag.is_some())
+                .then_with(|| changed(b).cmp(&changed(a)))
+                .then_with(|| b.last_touched.cmp(&a.last_touched))
                 .then_with(|| a.path.cmp(&b.path))
         });
         order
@@ -168,6 +181,7 @@ impl HeadState {
                 turns,
                 view,
                 policy,
+                agent,
                 ..
             } => {
                 self.session = session;
@@ -175,6 +189,7 @@ impl HeadState {
                 self.turns = turns;
                 self.view = view;
                 self.policy = policy;
+                self.agent = agent;
             }
             ServerMessage::Patch {
                 turns,
@@ -229,7 +244,24 @@ impl HeadState {
     }
 
     pub fn on_key(&mut self, key: Key) -> Vec<ClientMessage> {
+        // The overlay covers the screen, so keys meant for what is under it
+        // would act unseen. Leaving keys still leave.
+        if self.help {
+            match key {
+                Key::Help | Key::Back => self.help = false,
+                Key::Quit | Key::Hide(_) => {
+                    self.help = false;
+                    return self.on_key(key);
+                }
+                _ => {}
+            }
+            return Vec::new();
+        }
         match key {
+            Key::Help => {
+                self.help = true;
+                Vec::new()
+            }
             Key::Quit => {
                 self.should_quit = true;
                 Vec::new()
@@ -320,6 +352,14 @@ impl HeadState {
     }
 }
 
+/// Whether the agent changed the file in this turn, by the kinds the daemon
+/// sent. Spelled as `EventKind::label` spells them.
+pub fn changed(file: &crate::daemon::protocol::FileView) -> bool {
+    file.kinds
+        .iter()
+        .any(|k| matches!(k.as_str(), "edit" | "write" | "delete"))
+}
+
 impl Default for HeadState {
     fn default() -> Self {
         Self::new()
@@ -341,6 +381,8 @@ mod tests {
                 reason: "look here".into(),
                 range: Some(LineRange::new(1, 4)),
             }),
+            last_touched: None,
+            stale: false,
         }
     }
 
@@ -362,6 +404,7 @@ mod tests {
             turns,
             view: ViewState::default(),
             policy: PolicyMode::default(),
+            agent: Some("claude".into()),
         }
     }
 
@@ -635,5 +678,68 @@ mod tests {
         }]);
         state.cursor = 0;
         assert!(state.on_key(Key::Activate).is_empty());
+    }
+
+    fn touched(path: &str, kinds: &[&str], at: u64) -> FileView {
+        FileView {
+            kinds: kinds.iter().map(|k| k.to_string()).collect(),
+            last_touched: Some(Timestamp(at)),
+            ..file(path, false)
+        }
+    }
+
+    #[test]
+    fn flags_then_changes_then_the_rest_newest_first_within_each() {
+        let state = with(vec![turn(
+            "p1",
+            vec![
+                touched("/w/a.rs", &["read"], 9),
+                touched("/w/b.rs", &["edit"], 2),
+                touched("/w/c.rs", &["write"], 5),
+                touched("/w/d.rs", &["read"], 3),
+                file("/w/e.rs", true),
+            ],
+        )]);
+        let names: Vec<_> = state
+            .ordered_files(0)
+            .into_iter()
+            .map(|i| state.turns[0].files[i].path.clone())
+            .collect();
+        let expected: Vec<PathBuf> = ["e", "c", "b", "a", "d"]
+            .iter()
+            .map(|n| PathBuf::from(format!("/w/{n}.rs")))
+            .collect();
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn help_covers_the_list_until_dismissed() {
+        let mut state = with(vec![turn("p1", vec![file("/w/a.rs", false)])]);
+        state.on_key(Key::Help);
+        assert!(state.help);
+        // Keys meant for the list would act unseen under the overlay.
+        assert!(state.on_key(Key::Activate).is_empty());
+        state.on_key(Key::Down);
+        assert_eq!(state.cursor, 0);
+        state.on_key(Key::Back);
+        assert!(!state.help);
+
+        state.on_key(Key::Help);
+        state.on_key(Key::Help);
+        assert!(!state.help, "? closes what ? opened");
+    }
+
+    #[test]
+    fn a_hide_key_still_leaves_from_under_the_help() {
+        let mut state = with(vec![turn("p1", vec![file("/w/a.rs", false)])]);
+        state.on_key(Key::Help);
+        let sent = state.on_key(Key::Hide(HideUntil::Session));
+        assert!(state.should_quit);
+        assert_eq!(
+            sent,
+            vec![ClientMessage::Hide {
+                until: HideUntil::Session
+            }]
+        );
     }
 }
