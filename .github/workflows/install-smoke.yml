@@ -1,0 +1,228 @@
+# Install a release the way a user does — the one-line installers, from the
+# release's real URLs — on fresh machines, then wire, update and uninstall
+# it.
+#
+# scripts/test-install.sh tests the scripts against a locally served
+# archive; this tests what was actually published, on the platforms and
+# architectures nobody here has a machine for. Each runner is a new machine,
+# so nothing it does can leak into another run.
+#
+# release.yml calls it for every release while that release is still a
+# pre-release, and promotes the release only if it passes. By hand, it
+# checks any release: `gh workflow run install-smoke -f version=0.0.3`.
+name: install-smoke
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The release, e.g. v0.0.4"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "A release, e.g. 0.0.3 (default: the latest)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REPO: lividgreen/thirdeye
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ubuntu x86_64, runs-on: ubuntu-latest, elf: "3e" }
+          - { name: ubuntu aarch64, runs-on: ubuntu-24.04-arm, elf: "b7" }
+          # Containers: other distributions, and no systemd at all.
+          - { name: debian, runs-on: ubuntu-latest, container: "debian:stable-slim", elf: "3e" }
+          - { name: alpine, runs-on: ubuntu-latest, container: "alpine:3", elf: "3e" }
+    name: linux (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: sh -eu {0}
+    steps:
+      - name: what a bare container lacks
+        if: matrix.container
+        run: |
+          if command -v apk >/dev/null; then apk add --no-cache curl ca-certificates
+          else apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null; fi
+
+      - name: the release to expect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A named release is fetched by its tag: a pre-release is not
+          # what `latest` points at.
+          if [ -n "$VERSION" ]; then
+            want="${VERSION#v}"
+            scripts="https://github.com/$REPO/releases/download/v$want"
+          else
+            scripts="https://github.com/$REPO/releases/latest/download"
+            want=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/releases/latest" \
+              | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+          fi
+          [ -n "$want" ] || { echo "::error::no release found"; exit 1; }
+          echo "WANT=$want" >> "$GITHUB_ENV"
+          echo "SCRIPTS=$scripts" >> "$GITHUB_ENV"
+          echo "expecting $want"
+
+      - name: curl | sh, as the README says
+        run: |
+          curl -fsSL "$SCRIPTS/install.sh" \
+            | THIRDEYE_VERSION="$WANT" sh
+          bin="$HOME/.local/bin/thirdeye"
+          [ -x "$bin" ] || { echo "::error::no binary at $bin"; exit 1; }
+          echo "BIN=$bin" >> "$GITHUB_ENV"
+
+      - name: the binary is the release, for this machine
+        run: |
+          "$BIN" --version
+          "$BIN" --version | grep -q "^thirdeye $WANT " \
+            || { echo "::error::expected $WANT"; exit 1; }
+          machine=$(od -An -tx1 -j18 -N1 "$BIN" | tr -d ' ')
+          [ "$machine" = "${{ matrix.elf }}" ] \
+            || { echo "::error::ELF machine $machine, expected ${{ matrix.elf }}"; exit 1; }
+
+      - name: doctor, with nothing wired
+        run: |
+          "$BIN" doctor --user
+
+      # Wiring Claude Code runs its own CLI (`claude plugin …`), so it is
+      # installed for real. The containers check install, update and
+      # uninstall without it.
+      - name: Claude Code
+        if: ${{ !matrix.container }}
+        run: |
+          npm install -g --silent @anthropic-ai/claude-code
+          claude --version
+
+      - name: wire a project and check it
+        if: ${{ !matrix.container }}
+        run: |
+          mkdir -p "$HOME/project"
+          "$BIN" install -a claude "$HOME/project" --no-units
+          "$BIN" doctor "$HOME/project"
+
+      - name: self update
+        run: |
+          "$BIN" self update --version "$WANT"
+          "$BIN" --version
+          if [ -d "$HOME/project" ]; then "$BIN" doctor "$HOME/project"; fi
+
+      - name: uninstall, project and then thirdeye
+        run: |
+          if [ -d "$HOME/project" ]; then "$BIN" uninstall "$HOME/project"; fi
+          "$BIN" self uninstall
+          [ ! -e "$BIN" ] || { echo "::error::the binary is still there"; exit 1; }
+          data="${XDG_DATA_HOME:-$HOME/.local/share}/thirdeye"
+          [ ! -e "$data" ] || { echo "::error::$data is still there"; ls -la "$data"; exit 1; }
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: x86_64, runs-on: windows-latest, machine: "8664" }
+          - { name: aarch64, runs-on: windows-11-arm, machine: "aa64" }
+    name: windows (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: the release to expect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $want = if ($env:VERSION) { $env:VERSION.TrimStart('v') } else {
+            (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } `
+              "https://api.github.com/repos/$env:REPO/releases/latest").tag_name.TrimStart('v')
+          }
+          if (-not $want) { throw 'no release found' }
+          # A named release is fetched by its tag: a pre-release is not what
+          # `latest` points at.
+          $scripts = if ($env:VERSION) { "https://github.com/$env:REPO/releases/download/v$want" }
+                     else { "https://github.com/$env:REPO/releases/latest/download" }
+          "WANT=$want" >> $env:GITHUB_ENV
+          "SCRIPTS=$scripts" >> $env:GITHUB_ENV
+          "expecting $want"
+
+      - name: irm | iex, as the README says
+        # From the home folder, as a user would: run anywhere else, the
+        # script offers to wire that folder as a project.
+        run: |
+          Set-Location $env:USERPROFILE
+          $env:THIRDEYE_VERSION = $env:WANT
+          irm "$env:SCRIPTS/install.ps1" | iex
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\thirdeye\thirdeye.exe'
+          if (-not (Test-Path $exe)) { throw "no binary at $exe" }
+          "EXE=$exe" >> $env:GITHUB_ENV
+
+      - name: the binary is the release, for this machine
+        run: |
+          $version = & $env:EXE --version
+          $version
+          if ($version -notmatch "^thirdeye $([regex]::Escape($env:WANT)) ") { throw "expected $env:WANT" }
+          # The PE header's machine field: what the binary was built for.
+          $bytes = [IO.File]::ReadAllBytes($env:EXE)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = '{0:x4}' -f [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne '${{ matrix.machine }}') { throw "PE machine $machine, expected ${{ matrix.machine }}" }
+
+      - name: the user PATH names the directory
+        run: |
+          $dir = Split-Path $env:EXE
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (($path -split ';') -notcontains $dir) { throw "user PATH lacks $dir`: $path" }
+
+      - name: doctor, with nothing wired
+        run: |
+          & $env:EXE doctor --user; if ($LASTEXITCODE) { exit 1 }
+
+      # Wiring Claude Code runs its own CLI (`claude plugin …`), so it is
+      # installed for real.
+      - name: Claude Code
+        run: |
+          npm install -g --silent @anthropic-ai/claude-code
+          claude --version; if ($LASTEXITCODE) { exit 1 }
+
+      - name: wire a project and check it
+        run: |
+          $project = Join-Path $env:USERPROFILE 'project'
+          New-Item -ItemType Directory -Force $project | Out-Null
+          & $env:EXE install -a claude $project; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE doctor $project; if ($LASTEXITCODE) { exit 1 }
+
+      - name: self update
+        run: |
+          & $env:EXE self update --version $env:WANT; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE --version; if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE doctor (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
+
+      - name: uninstall, project and then thirdeye
+        run: |
+          & $env:EXE uninstall (Join-Path $env:USERPROFILE 'project'); if ($LASTEXITCODE) { exit 1 }
+          & $env:EXE self uninstall; if ($LASTEXITCODE) { exit 1 }
+          if (Test-Path $env:EXE) { throw 'the binary is still there' }
+          # Known and undecided: whether self uninstall should also remove
+          # the PATH entry and a thirdeye.exe.old it cannot delete while it
+          # runs. Reported, not failed.
+          $dir = Split-Path $env:EXE
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $dir) {
+            "::notice::the user PATH still names $dir"
+          }
+          Get-ChildItem $env:LOCALAPPDATA -Filter 'thirdeye*' -ErrorAction SilentlyContinue |
+            ForEach-Object { "::notice::left under LOCALAPPDATA: $($_.FullName)" }
+          Get-ChildItem $dir -ErrorAction SilentlyContinue |
+            ForEach-Object { "::notice::left in $dir`: $($_.Name)" }

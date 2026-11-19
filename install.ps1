@@ -123,6 +123,10 @@ try {
             Say 'next: `thirdeye install <project>` finds your agents and asks which to wire'
         }
     }
+    # Installed. A native command above may have failed on purpose — `git`
+    # outside a repository, `thirdeye install` with no agent to wire — and
+    # under `irm | iex` its exit code would be read as this script's.
+    $global:LASTEXITCODE = 0
 } finally {
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }

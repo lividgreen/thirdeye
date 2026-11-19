@@ -179,3 +179,39 @@ self uninstall` removes your user's integrations, the units and thirdeye's
 directory, and leaves an xtask-installed binary for you to delete. It cannot
 unwire projects — nothing records them — so run `cargo xtask uninstall`
 first.
+
+## Releasing
+
+A release reaches users only after it has been installed, the way they
+install it, on six fresh machines.
+
+1. A pull request bumps the version (`Cargo.toml`, `Cargo.lock`) and turns
+   `## Unreleased` in `CHANGELOG.md` into `## vX.Y.Z — YYYY-MM-DD`. Merge it.
+2. Publish the release as a **pre-release**, from the merge commit's *full*
+   sha (a short one is refused as "not a valid tag"):
+
+   ```bash
+   gh release create vX.Y.Z --prerelease --target <full sha> \
+     --title "thirdeye X.Y.Z" --notes-file <the version's changelog section>
+   ```
+
+3. `release.yml` then runs on its own:
+   - **build** the four archives and **release** attaches them, with their
+     checksums, the installers and a provenance attestation;
+   - **smoke** runs `install-smoke.yml` for this version, from its own
+     URLs: Ubuntu x86_64 and aarch64, Debian and Alpine (no systemd),
+     Windows x86_64 and ARM64. Each installs, wires Claude Code into a
+     project, updates and uninstalls;
+   - **promote** makes it a full release and Latest, which is what
+     `releases/latest`, the one-line installers and `self update` fetch;
+   - **announce** tells www.livid.work, which updates thirdeye's card.
+
+A release published as a full release by mistake is held back as a
+pre-release first (`hold`), so nothing can skip the check.
+
+If smoke fails, the release stays a pre-release and no user is given it.
+Fix the problem and release the next version; delete the failed
+pre-release if it is in the way. `gh workflow run install-smoke -f
+version=X.Y.Z` checks any release again; after a manual pass, `gh release
+edit vX.Y.Z --prerelease=false --latest` promotes it by hand, and announcing
+it means re-running the release run's `announce` job.

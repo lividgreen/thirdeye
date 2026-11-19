@@ -1,9 +1,13 @@
 # Build every released target and attach the archives, their checksums and
 # both installers to a release.
 #
-# A release is made on GitHub's web page, which creates its tag when it is
-# published; that fires this workflow, which builds from the tag and uploads
-# to the release. A pull request that touches what a release is built from
+# A release is made as a pre-release (`gh release create --prerelease`, or
+# the web page), which creates its tag when it is published; that fires this
+# workflow, which builds from the tag and uploads to the release. Then the
+# release is installed on fresh machines from its own URLs (install-smoke),
+# and only if that passes is it promoted to a full release and Latest, which
+# is what the installers and `self update` fetch, and announced. A release
+# that fails stays a pre-release that no user is given. A pull request that touches what a release is built from
 # runs the builds alone, so the matrix is known to work before a release
 # depends on it; so does a manual run.
 #
@@ -33,6 +37,22 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A release published as a full release would be Latest, and fetched by
+  # every installer, before anything had checked it. Held back at once.
+  hold:
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: make it a pre-release until it passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          echo "::warning::$TAG was published as a full release; holding it as a pre-release until install-smoke passes"
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease
+
   build:
     strategy:
       fail-fast: false
@@ -105,8 +125,9 @@ jobs:
           path: dist/*
 
   release:
-    needs: build
-    if: github.event_name == 'release'
+    needs: [build, hold]
+    # `hold` is skipped for a pre-release, which must not skip this.
+    if: always() && github.event_name == 'release' && needs.build.result == 'success' && needs.hold.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,15 +164,40 @@ jobs:
           cp install.sh install.ps1 dist/
           gh release upload "$tag" dist/* --clobber
 
+  # The release as a user gets it, on the six machines install-smoke covers,
+  # while it is still a pre-release.
+  #
+  # Each condition below names its own job's result: a skipped `hold` is an
+  # ancestor of all of them, and a default condition would skip them too.
+  smoke:
+    needs: release
+    if: always() && needs.release.result == 'success'
+    uses: ./.github/workflows/install-smoke.yml
+    with:
+      version: ${{ github.event.release.tag_name }}
+
+  promote:
+    needs: smoke
+    if: always() && needs.smoke.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: a full release, and Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease=false --latest
+
   # Tell www.livid.work about the release, so thirdeye's card there takes
   # the card file, the logo and the changelog's date from this tag (its
   # PROJECT-CONVENTION.md, "Telling www.livid.work about a release"). After
-  # `release`, so the site never announces a release whose archives are
-  # missing. The event is the release itself, so it already carries every
-  # field; nothing is read back.
+  # `promote`, so the site never announces a release users are not given.
+  # The event is the release itself, so it already carries every field;
+  # nothing is read back.
   announce:
-    needs: release
-    if: github.event_name == 'release'
+    needs: promote
+    if: always() && needs.promote.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: repository_dispatch project-release to www.livid.work
