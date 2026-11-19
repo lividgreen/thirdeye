@@ -6,18 +6,6 @@ version may change the log format, the head protocol or the command line.
 
 ## v0.0.5 — 2026-11-20
 
-### Fixed
-
-- On Windows, `thirdeye self update` failed when run from PowerShell 7
-  (`Get-FileHash` "not recognized"): the Windows PowerShell it starts
-  inherited PowerShell 7's module path and found none of its own modules.
-
-## v0.0.4 — 2026-11-20
-
-Published as a pre-release and never made Latest: installing it on fresh
-machines found `self update` failing on Windows. Everything below is in
-v0.0.5, with that fixed.
-
 ### Viewer
 
 - A new look: a thin frame naming the workspace, the agent and the policy;
@@ -41,6 +29,15 @@ v0.0.5, with that fixed.
 - `install.ps1` no longer reports failure after a successful install. Its
   last command could fail on purpose (`git` outside a repository), and
   under `irm | iex` that exit code was read as the script's.
+- On Windows, `thirdeye self update` failed when run from PowerShell 7
+  (`Get-FileHash` "not recognized"): the Windows PowerShell it starts
+  inherited PowerShell 7's module path and found none of its own modules.
+
+## v0.0.4 — 2026-11-20
+
+Published as a pre-release and never made Latest: installing it on fresh
+machines found `thirdeye self update` failing on Windows. Its changes are in
+v0.0.5, with that fixed.
 
 ## v0.0.3 — 2026-11-19
 
