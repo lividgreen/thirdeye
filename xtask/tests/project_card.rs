@@ -238,12 +238,14 @@ fn a_reference_definition_is_checked_too() {
 #[test]
 fn an_unquoted_summary_with_a_colon_is_caught() {
     let (text, path) = real_card();
-    let planted = text.replacen(
-        "summary: \"A viewer for command-line coding agents: a live list",
-        "summary: A viewer for command-line coding agents: a live list",
-        1,
-    );
-    let planted = planted.replacen("it touched.\"", "it touched.", 1);
+    // Whatever the summary says, with its quotes dropped and a colon in it.
+    let planted: String = text
+        .lines()
+        .map(|line| match line.strip_prefix("summary: ") {
+            Some(value) => format!("summary: {}: unquoted\n", value.trim_matches('"')),
+            None => format!("{line}\n"),
+        })
+        .collect();
     assert_caught(&planted, &path, "not quoted");
 }
 
