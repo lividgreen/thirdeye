@@ -21,6 +21,7 @@ pub mod surface;
 pub mod transport;
 
 use crate::local_socket::UnixListener;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -36,7 +37,7 @@ use crate::workspace;
 use activation::{Activation, SelfBind};
 use protocol::{
     ClientMessage, DetailMode, HideUntil, PROTOCOL_VERSION, PolicyMode, Role, ServerMessage,
-    TurnView, ViewState,
+    TurnView, ViewState, agent_name,
 };
 use surface::{Surface, ViewRequest};
 use transport::{IoTransport, Transport};
@@ -215,6 +216,10 @@ pub struct Daemon<S> {
     /// desynchronized connection. Every write to a head goes through here and
     /// out of a single writer thread.
     heads: Vec<Head>,
+    /// The files last reported stale, so the staleness timer patches heads
+    /// only when the answer changed. Derived from the disk, like every other
+    /// field here is derived from the log: a restarted daemon recomputes it.
+    stale: BTreeSet<PathBuf>,
 }
 
 /// A connected head, and whether the surface launched it.
@@ -247,6 +252,7 @@ impl<S: Surface> Daemon<S> {
             ended: false,
             heads: Vec::new(),
             next_head: 0,
+            stale: BTreeSet::new(),
         }
     }
 
@@ -400,9 +406,10 @@ impl<S: Surface> Daemon<S> {
     /// The state a head is told about, derived fresh from the log.
     fn snapshot(&self) -> Result<ServerMessage> {
         let outcome = read_session(&self.paths, Some(&self.session))?;
+        let stale = stale_files(&self.paths, &outcome);
         let turns = group_into_turns(&outcome.records)
             .iter()
-            .map(TurnView::from_turn)
+            .map(|turn| TurnView::from_turn(turn, &stale))
             .collect();
         Ok(ServerMessage::Snapshot {
             protocol_version: PROTOCOL_VERSION,
@@ -411,6 +418,7 @@ impl<S: Surface> Daemon<S> {
             turns,
             view: self.view.clone(),
             policy: self.policy,
+            agent: outcome.file_events().next().map(|e| agent_name(&e.agent)),
         })
     }
 
@@ -471,6 +479,33 @@ impl<S: Surface> Daemon<S> {
             .unwrap_or(false)
     }
 
+    /// Look at the disk again, and tell heads if a file became stale or
+    /// stopped being so.
+    ///
+    /// A human saving a file the agent read writes nothing to the log, so
+    /// nothing else would notice; the staleness timer calls this.
+    fn recheck_staleness(&mut self) -> Result<()> {
+        if self.heads.is_empty() {
+            return Ok(());
+        }
+        let outcome = read_session(&self.paths, Some(&self.session))?;
+        let stale = stale_files(&self.paths, &outcome);
+        if stale == self.stale {
+            return Ok(());
+        }
+        self.stale = stale;
+        let patch = ServerMessage::Patch {
+            turns: group_into_turns(&outcome.records)
+                .iter()
+                .map(|turn| TurnView::from_turn(turn, &self.stale))
+                .collect(),
+            view: None,
+            policy: None,
+        };
+        self.broadcast(&patch);
+        Ok(())
+    }
+
     /// Re-read the session and bring the surface in line with it.
     ///
     /// Re-reading whole rather than tracking byte offsets is not only simpler:
@@ -479,6 +514,7 @@ impl<S: Surface> Daemon<S> {
     pub fn refresh(&mut self) -> Result<()> {
         let outcome = read_session(&self.paths, Some(&self.session))?;
         let turns = group_into_turns(&outcome.records);
+        self.stale = stale_files(&self.paths, &outcome);
 
         // Heads learn about new events here, not by asking. Without this a
         // head would show whatever the log said at the moment it connected
@@ -486,7 +522,10 @@ impl<S: Surface> Daemon<S> {
         // not the thing the human is actually reading.
         if !self.heads.is_empty() {
             let patch = ServerMessage::Patch {
-                turns: turns.iter().map(TurnView::from_turn).collect(),
+                turns: turns
+                    .iter()
+                    .map(|turn| TurnView::from_turn(turn, &self.stale))
+                    .collect(),
                 view: None,
                 policy: None,
             };
@@ -540,6 +579,20 @@ impl<S: Surface> Daemon<S> {
         }
         Ok(())
     }
+}
+
+/// The session's files that changed on disk after the agent last read or
+/// wrote them. A file whose state cannot be told is not in the set: the
+/// indicator may claim a change, never its absence.
+fn stale_files(paths: &EventPaths, outcome: &thirdeye_core::ReadOutcome) -> BTreeSet<PathBuf> {
+    let mut tracker = thirdeye_core::TrackerState::new(paths.workspace().clone(), None);
+    tracker.apply_all(outcome.file_events());
+    tracker
+        .ranked(thirdeye_core::Timestamp::now())
+        .into_iter()
+        .filter(|file| file.staleness() == thirdeye_core::Staleness::Modified)
+        .map(|file| file.path.clone())
+        .collect()
 }
 
 /// The file's uncommitted changes, from git — `None` when it is not in a
@@ -788,6 +841,44 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_file_changed_after_the_agent_read_it_is_stale_and_only_then() {
+        let dir = std::env::temp_dir().join(format!("thirdeye-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.rs");
+        std::fs::write(&file, "fn main() {}").unwrap();
+        let path = file.to_str().unwrap();
+        let now = Timestamp::now().0;
+
+        // Read a minute after its last change: what the agent holds is current.
+        let fresh = harness("stale-fresh");
+        fresh.write(&[read(now + 60_000, path)]);
+        let outcome = read_session(&fresh.paths(), Some(SESSION)).unwrap();
+        assert!(stale_files(&fresh.paths(), &outcome).is_empty());
+
+        // Perturbed: read long before the file last changed.
+        let stale = harness("stale-modified");
+        stale.write(&[read(1, path)]);
+        let outcome = read_session(&stale.paths(), Some(SESSION)).unwrap();
+        assert!(stale_files(&stale.paths(), &outcome).contains(&file));
+
+        // A file that is gone cannot be told about, so it is not claimed.
+        let gone = harness("stale-gone");
+        gone.write(&[read(1, "/nonexistent/thirdeye/a.rs")]);
+        let outcome = read_session(&gone.paths(), Some(SESSION)).unwrap();
+        assert!(stale_files(&gone.paths(), &outcome).is_empty());
+    }
+
+    #[test]
+    fn the_snapshot_names_the_agent() {
+        let h = harness("agent");
+        h.write(&[read(1, "/w/a.rs")]);
+        let ServerMessage::Snapshot { agent, .. } = h.daemon().snapshot().unwrap() else {
+            panic!("expected a snapshot")
+        };
+        assert_eq!(agent.as_deref(), Some("claude"));
+    }
+
+    #[test]
     fn a_daemon_can_be_built_over_a_resolved_surface() {
         // The daemon must not be generic over a concrete surface type, or
         // adding one would mean editing `run`. Resolving to a trait object is
@@ -970,6 +1061,20 @@ pub fn serve<S: Surface + Send + 'static>(
     // session that already has events must not present an empty view.
     lock(&shared).refresh()?;
 
+    // A file changing on disk writes nothing to the log, so the staleness a
+    // head shows is looked at again on a timer of its own.
+    {
+        let shared = Arc::clone(&shared);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(STALENESS_POLL);
+                if let Err(e) = lock(&shared).recheck_staleness() {
+                    eprintln!("thirdeye daemon: rechecking staleness: {e:#}");
+                }
+            }
+        });
+    }
+
     if let Some(watch) = watch {
         let shared = Arc::clone(&shared);
         std::thread::spawn(move || {
@@ -1032,6 +1137,10 @@ pub fn serve<S: Surface + Send + 'static>(
     }
     Ok(())
 }
+
+/// How often the daemon looks for files changed on disk behind the agent.
+/// The same cadence as the agent poll: a stat per tracked file is cheap.
+const STALENESS_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How often the daemon looks for the agent. A view left open a few seconds
 /// after its agent exited is harmless; a `/proc` read is cheap either way.

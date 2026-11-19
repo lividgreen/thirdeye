@@ -10,6 +10,7 @@
 
 pub mod render;
 pub mod state;
+pub mod theme;
 
 use crate::local_socket::UnixStream;
 use std::io::Stdout;
@@ -31,6 +32,8 @@ use crate::daemon::transport::{IoTransport, Transport};
 use crate::session_ref;
 use crate::workspace;
 use state::{HeadState, Key};
+use theme::Theme;
+use thirdeye_core::Timestamp;
 
 /// How long to wait for a key before looking at the socket again.
 ///
@@ -121,9 +124,12 @@ fn event_loop(
     messages: &Receiver<ServerMessage>,
 ) -> Result<()> {
     let mut state = HeadState::new();
+    let theme = Theme::from_env(|name| std::env::var(name).ok());
 
     loop {
-        terminal.draw(|frame| render::draw(&state, frame))?;
+        // Every tick, not only on a message: the ages move with the clock.
+        let now = Timestamp::now();
+        terminal.draw(|frame| render::draw(&state, &theme, now, frame))?;
 
         // Everything the daemon has said since the last frame, then one key.
         // Draining first keeps a burst of patches from being rendered one
@@ -175,6 +181,7 @@ fn translate(code: KeyCode, modifiers: KeyModifiers) -> Option<Key> {
         KeyCode::Enter | KeyCode::Char(' ') => Some(Key::Activate),
         KeyCode::Esc => Some(Key::Back),
         KeyCode::Char('d') => Some(Key::ToggleDiff),
+        KeyCode::Char('?') => Some(Key::Help),
         // Three keys rather than one key and a question: the human closing
         // the viewer usually knows exactly how long they want it gone.
         KeyCode::Char('q') => Some(Key::Hide(HideUntil::NextTurn)),
@@ -215,6 +222,10 @@ mod tests {
         assert_eq!(translate(KeyCode::Enter, none), Some(Key::Activate));
         assert_eq!(translate(KeyCode::Esc, none), Some(Key::Back));
         assert_eq!(translate(KeyCode::Char('d'), none), Some(Key::ToggleDiff));
+        assert_eq!(
+            translate(KeyCode::Char('?'), KeyModifiers::SHIFT),
+            Some(Key::Help)
+        );
     }
 
     #[test]

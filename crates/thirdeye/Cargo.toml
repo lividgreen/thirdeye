@@ -22,6 +22,7 @@ toml_edit.workspace = true
 listenfd = "1.0.2"
 ratatui = "0.30.2"
 crossterm = "0.29.0"
+unicode-width = "0.2.3"
 
 # std has no stable Unix sockets on Windows, and making one from a raw handle
 # is `unsafe`. This contains it, as `listenfd` does for systemd's descriptor.
